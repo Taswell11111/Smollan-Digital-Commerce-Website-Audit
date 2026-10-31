@@ -1,0 +1,160 @@
+@import "tailwindcss";
+
+/* 
+  Dynamic Multi-Theme System with Contemporary Typography & Executive Finishes
+  Supports:
+  1. Sharp Modern & Contemporary (Plus Jakarta Sans + Space Grotesk, razor-sharp architectural layout)
+  2. Smollan Executive Navy & Cyan (Corporate Commerce Intelligence)
+  3. Luxury Obsidian & Editorial Gold (Refined Boardroom Advisory & Serif Display)
+  4. High-Contrast Terminal Cobalt (JetBrains Mono & Tech Cockpit)
+*/
+
+:root {
+  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --theme-font-heading: 'Plus Jakarta Sans', sans-serif;
+  --theme-header-bg: #002157;
+  --theme-header-border: rgba(0, 229, 255, 0.3);
+  --theme-page-bg: #ffffff;
+  --theme-page-text: #002157;
+  --theme-accent: #00e5ff;
+  --theme-accent-hover: #00c6d4;
+  --theme-accent-text: #002157;
+  --theme-highlight: #00e5ff;
+  --theme-radius-card: 12px;
+  --theme-radius-btn: 8px;
+  --theme-card-border: #e2e8f0;
+  --theme-badge-bg: rgba(0, 229, 255, 0.1);
+  --theme-badge-text: #002157;
+}
+
+/* 1. Sharp Modern & Contemporary (Default Flagship contemporary theme) */
+[data-theme="sharp-modern"] {
+  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --theme-font-heading: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
+  --theme-header-bg: #090d16;
+  --theme-header-border: rgba(0, 242, 254, 0.35);
+  --theme-page-bg: #f1f5f9;
+  --theme-page-text: #090d16;
+  --theme-accent: #00f2fe;
+  --theme-accent-hover: #00c6d4;
+  --theme-accent-text: #040810;
+  --theme-highlight: #10b981;
+  --theme-radius-card: 4px;
+  --theme-radius-btn: 4px;
+  --theme-card-border: #cbd5e1;
+  --theme-badge-bg: rgba(0, 242, 254, 0.15);
+  --theme-badge-text: #0284c7;
+}
+
+/* 2. Smollan Executive Navy & Cyan */
+[data-theme="navy-cyan"] {
+  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --theme-font-heading: 'Plus Jakarta Sans', sans-serif;
+  --theme-header-bg: #002157;
+  --theme-header-border: rgba(0, 229, 255, 0.3);
+  --theme-page-bg: #ffffff;
+  --theme-page-text: #002157;
+  --theme-accent: #00e5ff;
+  --theme-accent-hover: #00c6d4;
+  --theme-accent-text: #002157;
+  --theme-highlight: #00e5ff;
+  --theme-radius-card: 12px;
+  --theme-radius-btn: 8px;
+  --theme-card-border: #e2e8f0;
+  --theme-badge-bg: rgba(0, 229, 255, 0.1);
+  --theme-badge-text: #002157;
+}
+
+/* 3. Luxury Obsidian & Editorial Gold */
+[data-theme="luxury-gold"] {
+  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --theme-font-heading: 'Playfair Display', Georgia, serif;
+  --theme-header-bg: #121217;
+  --theme-header-border: rgba(245, 158, 11, 0.35);
+  --theme-page-bg: #faf8f5;
+  --theme-page-text: #1c1917;
+  --theme-accent: #f59e0b;
+  --theme-accent-hover: #d97706;
+  --theme-accent-text: #1c1917;
+  --theme-highlight: #059669;
+  --theme-radius-card: 10px;
+  --theme-radius-btn: 8px;
+  --theme-card-border: #e7e2db;
+  --theme-badge-bg: rgba(245, 158, 11, 0.15);
+  --theme-badge-text: #b45309;
+}
+
+/* 4. High-Contrast Terminal Cobalt */
+[data-theme="tech-cobalt"] {
+  --theme-font-body: 'JetBrains Mono', Menlo, Consolas, monospace;
+  --theme-font-heading: 'Space Grotesk', 'JetBrains Mono', monospace;
+  --theme-header-bg: #09090b;
+  --theme-header-border: rgba(56, 189, 248, 0.4);
+  --theme-page-bg: #f4f4f5;
+  --theme-page-text: #09090b;
+  --theme-accent: #38bdf8;
+  --theme-accent-hover: #0284c7;
+  --theme-accent-text: #09090b;
+  --theme-highlight: #34d399;
+  --theme-radius-card: 4px;
+  --theme-radius-btn: 4px;
+  --theme-card-border: #d4d4d8;
+  --theme-badge-bg: rgba(56, 189, 248, 0.15);
+  --theme-badge-text: #0284c7;
+}
+
+/* Global Font Application & Root Style Rules */
+html {
+  font-family: var(--theme-font-body);
+  background-color: var(--theme-page-bg);
+  color: var(--theme-page-text);
+}
+
+@keyframes sparkleMove {
+  0% { background-position: 0% 0%, 0% 0%, 0% 0%; }
+  100% { background-position: 100% 100%, -100% 100%, 50% -50%; }
+}
+
+body {
+  font-family: var(--theme-font-body);
+  background-color: var(--theme-page-bg);
+  color: var(--theme-page-text);
+  transition: background-color 0.25s ease, color 0.25s ease;
+  min-height: 100vh;
+  position: relative;
+  overflow-x: hidden;
+  
+  /* Ambient Blue Sparkle Effect */
+  background-image: 
+    radial-gradient(circle at 2px 2px, rgba(0, 229, 255, 0.05) 1px, transparent 0),
+    radial-gradient(circle at 4px 4px, rgba(0, 33, 87, 0.03) 1px, transparent 0),
+    radial-gradient(circle at 6px 6px, rgba(0, 229, 255, 0.04) 1px, transparent 0);
+  background-size: 100px 100px, 150px 150px, 250px 250px;
+  animation: sparkleMove 120s linear infinite;
+}
+
+/* Heading Typography Override across the app */
+h1, h2, h3, h4, .font-heading, .display-heading {
+  font-family: var(--theme-font-heading);
+  letter-spacing: -0.02em;
+}
+
+/* Sharp theme class modifiers */
+[data-theme="sharp-modern"] .theme-card,
+[data-theme="sharp-modern"] .rounded-2xl,
+[data-theme="sharp-modern"] .rounded-xl {
+  border-radius: var(--theme-radius-card) !important;
+}
+
+[data-theme="sharp-modern"] button,
+[data-theme="sharp-modern"] .rounded-lg {
+  border-radius: var(--theme-radius-btn) !important;
+}
+
+[data-theme="sharp-modern"] .theme-accent-border {
+  border-color: var(--theme-accent) !important;
+}
+
+[data-theme="tech-cobalt"] * {
+  letter-spacing: -0.01em;
+}

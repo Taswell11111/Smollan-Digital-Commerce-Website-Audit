@@ -1,0 +1,6 @@
+{
+  "name": "Smollan Digital Commerce — Website Intelligence & Opportunity Audit",
+  "description": "AI-powered ecommerce audit platform and B2B sales lead generation engine built for Smollan Digital Commerce, featuring Reebok-style reporting, secure SSRF-protected crawler, deterministic scoring, interactive preview sandbox, and sales pitch generator.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
