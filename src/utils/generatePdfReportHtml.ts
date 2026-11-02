@@ -239,25 +239,10 @@ export function generatePdfReportHtml(audit: AuditRecord, roiOutput?: RoiOutput)
       </div>
     </div>
 
-    <div class="section-title">6. Audit Execution Cost &amp; Compute Telemetry</div>
-    <div class="card" style="background: #f0fdf4; border: 1px solid #86efac;">
-      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-        <span style="font-size: 11px; font-weight: 800; text-transform: uppercase; color: #166534;">
-          Transparent Cloud Resource Consumption
-        </span>
-        <span style="font-size: 14px; font-weight: 900; color: #15803d;">
-          Total Execution Cost: R 0.035 ($0.0019 USD)
-        </span>
-      </div>
-      <p style="font-size: 12px; color: #166534; line-height: 1.6;">
-        This audit was executed using Smollan's automated edge crawler and deterministic scoring pipeline, inspecting ${audit.crawlSummary.inspected} pages in ~3.4 seconds. By combining efficient micro-instance vCPU compute ($0.00008), lightweight bandwidth ($0.00002), and Google Gemini Flash token synthesis ($0.00007), the total actual platform cost was <strong>R 0.035</strong>. Compared against a traditional human manual commercial audit benchmark of <strong>R 18,500</strong>, this represents a <strong>99.99% operational cost reduction</strong>.
-      </p>
-    </div>
-
-    <div class="section-title">7. Methodology</div>
+    <div class="section-title">6. Methodology</div>
     <p>This audit was executed using deterministic server-side DOM crawling and rule-based evaluation against the Smollan v2.0.0 ruleset. The evaluation covers ${categories.length} core storefront categories including Mobile Optimisation, Page Speed, Security & TLS, SEO, Accessibility, Conversion Efficiency, and Agentic AI Commerce Readiness.</p>
 
-    <div class="section-title">8. Limitations</div>
+    <div class="section-title">7. Limitations</div>
     <p>This automated assessment is based on public DOM crawling and does not include internal analytics telemetry, logged-in customer session data, or live third-party user interaction recordings.</p>
 
   </div>

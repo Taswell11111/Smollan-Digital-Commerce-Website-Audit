@@ -8,7 +8,60 @@ export async function evaluateChecks(page: Page, scenario: string, checkIds: str
       case 'CHK-PERF-LCP':
       case 'CHK-PERF-INP':
       case 'CHK-PERF-CLS': {
-        results[id] = { status: 'measured', value: 1200, tier: 'rendered', source: 'sourced' };
+        const cwv = await page.evaluate(async (checkId) => {
+          return new Promise((resolve) => {
+            let lcpVal: number | null = null;
+            let clsVal = 0;
+            let inpVal: number | null = null;
+
+            try {
+              const lcpObserver = new PerformanceObserver((list) => {
+                const entries = list.getEntries();
+                const last = entries[entries.length - 1];
+                if (last) lcpVal = last.startTime;
+              });
+              lcpObserver.observe({ type: 'largest-contentful-paint', buffered: true });
+
+              const clsObserver = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                  if (!(entry as any).hadRecentInput) {
+                    clsVal += (entry as any).value;
+                  }
+                }
+              });
+              clsObserver.observe({ type: 'layout-shift', buffered: true });
+
+              const eventObserver = new PerformanceObserver((list) => {
+                for (const entry of list.getEntries()) {
+                  const duration = (entry as any).duration || (entry as any).processingEnd - (entry as any).startTime;
+                  if (inpVal === null || duration > inpVal) {
+                    inpVal = duration;
+                  }
+                }
+              });
+              eventObserver.observe({ type: 'event', buffered: true });
+            } catch {}
+
+            setTimeout(() => {
+              if (checkId === 'CHK-PERF-LCP') {
+                if (lcpVal !== null) {
+                  resolve({ status: 'measured', value: Math.round(lcpVal), tier: 'measured', source: 'measured' });
+                } else {
+                  resolve({ status: 'not_measured', reason: 'no_lcp_observed' });
+                }
+              } else if (checkId === 'CHK-PERF-CLS') {
+                resolve({ status: 'measured', value: Number(clsVal.toFixed(4)), tier: 'measured', source: 'measured' });
+              } else if (checkId === 'CHK-PERF-INP') {
+                if (inpVal !== null) {
+                  resolve({ status: 'measured', value: Math.round(inpVal), tier: 'measured', source: 'measured' });
+                } else {
+                  resolve({ status: 'not_measured', reason: 'no_input_observed' });
+                }
+              }
+            }, 3000);
+          });
+        }, id);
+        results[id] = cwv;
         break;
       }
       case 'CHK-PROD-PRICE': {

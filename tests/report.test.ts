@@ -10,6 +10,7 @@ describe('Report and PDF Generation Tests', () => {
     businessName: 'Example Retail',
     overallScore: 85,
     projectedOverallScore: 95,
+    crawlSummary: { discovered: 5, inspected: 5, failed: 0 },
     categoryResults: {
       'Mobile Optimisation': { score: 90, status: 'Optimised' },
       'Page Speed': { score: 80, status: 'Optimised' }

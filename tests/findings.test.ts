@@ -6,7 +6,7 @@ describe('Evidence Integrity & Sender Compliance', () => {
     expect(senderConfig.name).toBeTruthy();
     expect(senderConfig.company).toBeTruthy();
     expect(senderConfig.contactReason).toBeTruthy();
-    expect(senderConfig.optOutNotice).toContain('Reply STOP or ask us to remove you and we will not contact you again.');
+    expect(senderConfig.optOutNotice).toContain('To opt out of future communications');
   });
 
   it('validates finding schema integrity: source is strictly measured or ai', () => {

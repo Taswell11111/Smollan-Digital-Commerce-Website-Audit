@@ -37,6 +37,7 @@ export interface ScoringInput {
   trustMarkersCount?: number;
   homepageReachable?: boolean;
   homepageFailReason?: string;
+  workerResults?: Record<string, any>;
 }
 
 export interface ScoringOutput {
@@ -71,7 +72,8 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     privacyPolicyFound = false,
     trustMarkersCount = 0,
     homepageReachable = true,
-    homepageFailReason
+    homepageFailReason,
+    workerResults = {}
   } = input;
 
   const measurements: Record<string, any> = {};
@@ -191,57 +193,81 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
         totalCoreWeight += catDef.weight / catDef.checks.length;
       }
 
-      let checkStatus: 'pass' | 'partial' | 'fail' | 'not_assessed' = 'pass';
+      let checkStatus: 'pass' | 'partial' | 'fail' | 'not_assessed' | 'not_measured' = 'pass';
       let checkScore = 100;
       let evidence = '';
 
       switch (chk.id) {
         case 'CHK-PERF-LCP': {
-          const avgLoad = pagesInspected.length > 0
-            ? pagesInspected.reduce((acc, p) => acc + (p.loadTimeMs || 1200), 0) / pagesInspected.length
-            : 1500;
-          measurements.labLcpMs = Math.round(avgLoad);
-          if (avgLoad > 4000) {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = `Lab LCP estimated at ${Math.round(avgLoad)}ms (> 4000ms threshold).`;
-          } else if (avgLoad > 2500) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `Lab LCP estimated at ${Math.round(avgLoad)}ms (2500ms - 4000ms threshold).`;
+          const lcpRes = workerResults['CHK-PERF-LCP'];
+          if (lcpRes && lcpRes.status === 'measured' && typeof lcpRes.value === 'number') {
+            measurements.labLcpMs = lcpRes.value;
+            const lcp = lcpRes.value;
+            if (lcp > 4000) {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Measured LCP at ${lcp}ms (> 4000ms threshold).`;
+            } else if (lcp > 2500) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `Measured LCP at ${lcp}ms (2500ms - 4000ms threshold).`;
+            } else {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Measured LCP at ${lcp}ms (≤ 2500ms good threshold).`;
+            }
           } else {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `Lab LCP estimated at ${Math.round(avgLoad)}ms (≤ 2500ms good threshold).`;
+            checkStatus = 'not_measured';
+            evidence = `LCP not measured (${lcpRes?.reason || 'no browser measurement available'}).`;
           }
           break;
         }
         case 'CHK-PERF-INP': {
-          const avgTtfb = pagesInspected.length > 0
-            ? pagesInspected.reduce((acc, p) => acc + (p.ttfbMs || 300), 0) / pagesInspected.length
-            : 300;
-          measurements.labInpMs = Math.round(avgTtfb * 1.5);
-          const inp = measurements.labInpMs;
-          if (inp > 500) {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = `INP proxy (TBT) estimated at ${inp}ms (> 500ms threshold).`;
-          } else if (inp > 200) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `INP proxy estimated at ${inp}ms (200ms - 500ms threshold).`;
+          const inpRes = workerResults['CHK-PERF-INP'];
+          if (inpRes && inpRes.status === 'measured' && typeof inpRes.value === 'number') {
+            measurements.labInpMs = inpRes.value;
+            const inp = inpRes.value;
+            if (inp > 500) {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Measured INP at ${inp}ms (> 500ms threshold).`;
+            } else if (inp > 200) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `Measured INP at ${inp}ms (200ms - 500ms threshold).`;
+            } else {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Measured INP at ${inp}ms (≤ 200ms good threshold).`;
+            }
           } else {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `INP proxy estimated at ${inp}ms (≤ 200ms good threshold).`;
+            checkStatus = 'not_measured';
+            evidence = `INP not measured (${inpRes?.reason || 'no browser measurement available'}).`;
           }
           break;
         }
         case 'CHK-PERF-CLS': {
-          measurements.labCls = 0.05;
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Layout shift score 0.05 (≤ 0.1 good threshold).';
+          const clsRes = workerResults['CHK-PERF-CLS'];
+          if (clsRes && clsRes.status === 'measured' && typeof clsRes.value === 'number') {
+            measurements.labCls = clsRes.value;
+            const cls = clsRes.value;
+            if (cls > 0.25) {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Measured Layout Shift (CLS) at ${cls} (> 0.25 threshold).`;
+            } else if (cls > 0.1) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `Measured Layout Shift (CLS) at ${cls} (0.1 - 0.25 threshold).`;
+            } else {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Measured Layout Shift (CLS) at ${cls} (≤ 0.1 good threshold).`;
+            }
+          } else {
+            checkStatus = 'not_measured';
+            evidence = `CLS not measured (${clsRes?.reason || 'no browser measurement available'}).`;
+          }
           break;
         }
         case 'CHK-PROD-PRICE': {
@@ -488,6 +514,21 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
       }
 
+      if (checkStatus === 'not_measured') {
+        if (chk.core) {
+          totalCoreWeight -= catDef.weight / catDef.checks.length;
+        }
+        checks.push({
+          id: chk.id,
+          name: chk.name,
+          status: 'not_measured',
+          evidence,
+          recoverablePoints: 0,
+          potentialFix: chk.potentialFix
+        });
+        return;
+      }
+
       if (chk.core) {
         measuredCoreWeight += catDef.weight / catDef.checks.length;
       }
@@ -519,8 +560,9 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     });
 
     const catScore = catMeasuredCount > 0 ? Math.round(catScoreSum / catMeasuredCount) : 100;
-    totalMeasuredWeight += catDef.weight;
-    totalWeightedScore += catScore * catDef.weight;
+    const catWeightUsed = catMeasuredCount > 0 ? catDef.weight : 0;
+    totalMeasuredWeight += catWeightUsed;
+    totalWeightedScore += catScore * catWeightUsed;
 
     categoryResults[catDef.name] = {
       score: catScore,

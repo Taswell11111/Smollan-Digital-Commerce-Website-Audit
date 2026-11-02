@@ -138,4 +138,25 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     expect(firstRun.projectedOverallScore).toBe(secondRun.projectedOverallScore);
     expect(firstRun.categoryResults).toEqual(secondRun.categoryResults);
   });
+
+  it('a not_measured CLS does not produce a pass and does not change other checks scores beyond re-normalisation', () => {
+    const resultWithoutCls = calculateScores({
+      pagesInspected: [passingHomepage, passingProduct, passingCheckout],
+      failedPages: [],
+      pagesDiscoveredCount: 3,
+      tlsInfo: { isHttps: true, validCert: true, httpToHttpsRedirect: true },
+      privacyPolicyFound: true,
+      trustMarkersCount: 2,
+      homepageReachable: true,
+      workerResults: {
+        'CHK-PERF-CLS': { status: 'not_measured', reason: 'no_layout_shift_observed' }
+      }
+    });
+
+    const perfCat = resultWithoutCls.categoryResults['Performance'];
+    const clsCheck = perfCat.checks.find((c: any) => c.id === 'CHK-PERF-CLS');
+    expect(clsCheck).toBeDefined();
+    expect(clsCheck!.status).toBe('not_measured');
+    expect(clsCheck!.status).not.toBe('pass');
+  });
 });

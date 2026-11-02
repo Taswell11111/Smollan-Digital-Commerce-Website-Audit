@@ -14,49 +14,8 @@ const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 8080;
 const robotsCache = new Map<string, { disallowedPaths: string[]; fetchedAt: number }>();
 const lastLoadMap = new Map<string, number>();
 
-function isIpBlocked(ipStr: string): boolean {
-  try {
-    const addr = ipaddr.parse(ipStr);
-    if (addr.kind() === 'ipv4') {
-      const v4 = addr as ipaddr.IPv4;
-      const range = v4.range();
-      const blockedRanges = ['loopback', 'private', 'linkLocal', 'carrierGradeNat', 'unspecified', 'broadcast'];
-      if (blockedRanges.includes(range)) return true;
-    } else if (addr.kind() === 'ipv6') {
-      const v6 = addr as ipaddr.IPv6;
-      const range = v6.range();
-      if (range === 'loopback' || range === 'unspecified' || range === 'uniqueLocal' || range === 'linkLocal') {
-        return true;
-      }
-      if (v6.isIPv4MappedAddress()) {
-        const mapped = v6.toIPv4Address();
-        if (['loopback', 'private', 'linkLocal', 'carrierGradeNat', 'unspecified'].includes(mapped.range())) {
-          return true;
-        }
-      }
-    }
-  } catch {
-    return true;
-  }
-  return false;
-}
-
-async function validateHostname(hostname: string): Promise<boolean> {
-  if (ipaddr.isValid(hostname)) {
-    return !isIpBlocked(hostname);
-  }
-  try {
-    const resolved = await dns.promises.lookup(hostname, { all: true });
-    for (const r of resolved) {
-      if (isIpBlocked(r.address)) {
-        return false;
-      }
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
+import { validateHostname } from './ssrf.js';
+import { evaluateChecks } from './checks.js';
 
 function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const currentWorkerToken = process.env.WORKER_TOKEN;
@@ -227,11 +186,12 @@ app.post('/v1/render', authMiddleware, async (req: Request, res: Response) => {
 
   try {
     const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Budget exhaustion timeout')), 120000));
+    // NOTE: DNS-rebinding gap: the worker resolves DNS here to validate hostname,
+    // then Chromium resolves again when navigating. Do not fix it in this pass.
     const renderTask = async () => {
       await page.goto(url, { timeout: 20000, waitUntil: 'domcontentloaded' });
-      for (const id of checkIds) {
-        results[id] = { status: 'not_measured', reason: 'not_implemented' };
-      }
+      const checkResults = await evaluateChecks(page, scenario, checkIds, allowCartJourney);
+      Object.assign(results, checkResults);
     };
     await Promise.race([renderTask(), timeoutPromise]);
   } catch (err: any) {

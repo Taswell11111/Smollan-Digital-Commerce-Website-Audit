@@ -27,7 +27,10 @@ const BLOCKED_IPV6_CIDRS = [
   '::/128',
   'fc00::/7',
   'fe80::/10',
-  'ff00::/8'
+  'ff00::/8',
+  '64:ff9b::/96',
+  '64:ff9b:1::/48',
+  '2002::/16'
 ].map(c => ipaddr.parseCIDR(c));
 
 /**
@@ -51,19 +54,43 @@ export function isBlockedIp(rawIp: string): boolean {
     return true; // Any unparseable IP is rejected
   }
 
-  // Handle IPv4-mapped IPv6 addresses (::ffff:0:0/96)
-  if (addr.kind() === 'ipv6') {
-    const v6 = addr as ipaddr.IPv6;
-    if (v6.isIPv4MappedAddress()) {
-      addr = v6.toIPv4Address();
-    }
-  }
-
   if (addr.kind() === 'ipv4') {
     const v4 = addr as ipaddr.IPv4;
     return BLOCKED_IPV4_CIDRS.some(cidr => v4.match(cidr));
   } else {
     const v6 = addr as ipaddr.IPv6;
+    if (v6.isIPv4MappedAddress()) {
+      const mappedV4 = v6.toIPv4Address();
+      return BLOCKED_IPV4_CIDRS.some(cidr => mappedV4.match(cidr));
+    }
+
+    const parts = v6.parts;
+    // Check NAT64 (64:ff9b::/96)
+    if (parts[0] === 0x0064 && parts[1] === 0xff9b && parts[2] === 0 && parts[3] === 0 && parts[4] === 0 && parts[5] === 0) {
+      const p6 = parts[6];
+      const p7 = parts[7];
+      const embeddedV4 = `${(p6 >> 8) & 0xff}.${p6 & 0xff}.${(p7 >> 8) & 0xff}.${p7 & 0xff}`;
+      if (ipaddr.isValid(embeddedV4)) {
+        const v4Obj = ipaddr.parse(embeddedV4) as ipaddr.IPv4;
+        if (BLOCKED_IPV4_CIDRS.some(cidr => v4Obj.match(cidr))) {
+          return true;
+        }
+      }
+    }
+
+    // Check 6to4 (2002::/16)
+    if (parts[0] === 0x2002) {
+      const p1 = parts[1];
+      const p2 = parts[2];
+      const embeddedV4 = `${(p1 >> 8) & 0xff}.${p1 & 0xff}.${(p2 >> 8) & 0xff}.${p2 & 0xff}`;
+      if (ipaddr.isValid(embeddedV4)) {
+        const v4Obj = ipaddr.parse(embeddedV4) as ipaddr.IPv4;
+        if (BLOCKED_IPV4_CIDRS.some(cidr => v4Obj.match(cidr))) {
+          return true;
+        }
+      }
+    }
+
     return BLOCKED_IPV6_CIDRS.some(cidr => v6.match(cidr));
   }
 }
@@ -223,11 +250,7 @@ export async function safeFetch(
     const pinnedIp = validation.resolvedAddresses?.[0];
     let dispatcher: Agent | undefined;
     if (pinnedIp) {
-      try {
-        dispatcher = createPinnedAgent(pinnedIp);
-      } catch {
-        // If undici agent creation fails in environment, proceed with standard fetch
-      }
+      dispatcher = createPinnedAgent(pinnedIp);
     }
 
     // 2. Execute fetch with manual redirect handling

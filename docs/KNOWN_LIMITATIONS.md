@@ -19,3 +19,9 @@ This document outlines the known architectural and operational limitations of th
 
 6. **Network Environment Restrictions**:
    - Automated browser rendering and crawling depend on target storefront availability and outbound network connectivity. Firewalls or Web Application Firewalls (WAF) blocking automated user-agents may result in partial scan results or rate-limiting by the target domain.
+
+7. **No access control**:
+   - All `/api` routes are unauthenticated.
+   - Endpoints such as `/api/audit` and `/api/pitch` trigger paid Google Gemini AI API calls.
+   - Endpoints such as `/api/audits` and `/api/leads` return stored prospect and audit data to any caller without credential verification.
+   - This is a known limitation and must be addressed with appropriate authentication, authorization, and network isolation before any shared or public multi-tenant deployment.

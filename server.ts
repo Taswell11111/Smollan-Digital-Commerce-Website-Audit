@@ -15,9 +15,6 @@ import { calculateScores } from './src/utils/scoring.ts';
 import { CATEGORY_RULESET, CATEGORY_WEIGHTS, RULESET_VERSION, SCHEMA_VERSION } from './src/config/ruleset.ts';
 import { callBrowserWorker } from './server/workerClient.ts';
 
-// Access gate: Credential sign-in prompt disabled for now per user request
-const APP_PASSWORD = process.env.APP_PASSWORD || '';
-
 const app = express();
 app.set('trust proxy', 1);
 // Reduced JSON body limit to 100kb
@@ -39,10 +36,6 @@ function checkCancelled(auditId: string) {
     throw new Error('cancelled');
   }
 }
-
-// Credential sign-in prompt disabled for now per user instruction:
-// function basicAuthMiddleware(req: Request, res: Response, next: NextFunction) { ... }
-// app.use(basicAuthMiddleware);
 
 // Rate Limiters per IP
 const auditLimiter = rateLimit({
