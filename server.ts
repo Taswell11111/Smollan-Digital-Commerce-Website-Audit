@@ -187,6 +187,14 @@ function getIndustryBenchmarks(): Record<string, { value: number; source: string
 
 function calculateIndustryBenchmarks(categoryResults: Record<string, { score: number }>) {
   const benchmarksData = getIndustryBenchmarks();
+  const hasData = Object.keys(benchmarksData).length > 0;
+  if (!hasData) {
+    return {
+      available: false,
+      message: 'Verified industry benchmark dataset unavailable.'
+    };
+  }
+
   const categoryBenchmarks: Record<string, {
     benchmark: number;
     delta: number;
@@ -200,30 +208,31 @@ function calculateIndustryBenchmarks(categoryResults: Record<string, { score: nu
 
   Object.entries(categoryResults).forEach(([cat, res]) => {
     const bEntry = benchmarksData[cat];
-    const benchmark = bEntry?.value ?? 80;
-    const delta = res.score - benchmark;
-    let status: 'Lagging' | 'On Par' | 'Outperforming' = 'On Par';
-    if (delta <= -4) status = 'Lagging';
-    else if (delta >= 4) status = 'Outperforming';
+    if (bEntry && typeof bEntry.value === 'number') {
+      const benchmark = bEntry.value;
+      const delta = res.score - benchmark;
+      let status: 'Lagging' | 'On Par' | 'Outperforming' = 'On Par';
+      if (delta <= -4) status = 'Lagging';
+      else if (delta >= 4) status = 'Outperforming';
 
-    categoryBenchmarks[cat] = {
-      benchmark,
-      delta,
-      status,
-      source: bEntry?.source || 'UNSOURCED — internal estimate',
-      sourceDate: bEntry?.sourceDate || '2024',
-      notes: bEntry?.notes || ''
-    };
-    totalBenchmark += benchmark;
-    count++;
+      categoryBenchmarks[cat] = {
+        benchmark,
+        delta,
+        status,
+        source: bEntry.source || 'Verified Corpus',
+        sourceDate: bEntry.sourceDate || '2024',
+        notes: bEntry.notes || ''
+      };
+      totalBenchmark += benchmark;
+      count++;
+    }
   });
 
-  const industryAverage = count > 0 ? Math.round(totalBenchmark / count) : 80;
-  const topTierStandard = 90;
+  const industryAverage = count > 0 ? Math.round(totalBenchmark / count) : undefined;
 
   return {
+    available: true,
     industryAverage,
-    topTierStandard,
     categoryBenchmarks
   };
 }
@@ -1048,6 +1057,7 @@ async function runAudit(auditId: string, params: any) {
 
     // 1b. Call browser worker for rendered checks (if homepage accessible)
     let workerDurationMs = 0;
+    let workerResults: Record<string, any> = {};
     const scenariosRun = ['home', 'collection', 'product'];
     if (homepage) {
       logAudit(auditId, 'Initiating rendered checks...');
@@ -1062,6 +1072,9 @@ async function runAudit(auditId: string, params: any) {
         checkCancelled(auditId);
         logAudit(auditId, 'Rendered checks complete.');
         workerDurationMs = workerRes.durationMs;
+        if (workerRes && workerRes.results) {
+          workerResults = workerRes.results;
+        }
       } catch (workerErr: any) {
         logAudit(auditId, `Rendered check notice: ${workerErr.message || 'Worker skipped'}`);
       }
@@ -1080,7 +1093,8 @@ async function runAudit(auditId: string, params: any) {
       privacyPolicyFound: crawlResult.privacyPolicyFound,
       trustMarkersCount: crawlResult.trustMarkersCount,
       homepageReachable: !!homepage,
-      homepageFailReason: crawlErrorNotice || undefined
+      homepageFailReason: crawlErrorNotice || undefined,
+      workerResults
     });
     checkCancelled(auditId);
 
@@ -1495,10 +1509,38 @@ async function runAudit(auditId: string, params: any) {
 }
 
 app.post('/api/audit', auditLimiter, async (req: Request, res: Response) => {
+  const { url, depth, maxPages } = req.body || {};
+  if (!url || typeof url !== 'string' || url.trim().length === 0) {
+    return res.status(400).json({ success: false, error: 'Target URL is required.' });
+  }
+
+  const validation = await validateTargetUrl(url);
+  if (!validation.valid) {
+    return res.status(400).json({ success: false, error: validation.error });
+  }
+
+  // Cap maxPages to a maximum allowed ceiling of 100 pages
+  let cappedMaxPages: number | undefined = undefined;
+  if (typeof maxPages === 'number' && !isNaN(maxPages)) {
+    cappedMaxPages = Math.min(100, Math.max(1, maxPages));
+  } else if (typeof maxPages === 'string') {
+    const parsed = parseInt(maxPages, 10);
+    if (!isNaN(parsed)) {
+      cappedMaxPages = Math.min(100, Math.max(1, parsed));
+    }
+  }
+
+  const auditParams = {
+    ...req.body,
+    url: validation.normalizedUrl!,
+    depth: ['quick', 'standard', 'deep'].includes(depth) ? depth : 'standard',
+    maxPages: cappedMaxPages
+  };
+
   const auditId = `AUD-${crypto.randomUUID()}`;
   auditStatusMap.set(auditId, { status: 'running', logs: ['[SYSTEM] Audit queued.'] });
   
-  runAudit(auditId, req.body).catch(console.error);
+  runAudit(auditId, auditParams).catch(console.error);
 
   res.json({ auditId });
 });

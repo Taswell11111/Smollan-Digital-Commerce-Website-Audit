@@ -25,6 +25,7 @@ export interface ScoringInput {
     hasSizeGuide?: boolean;
     hasCanonical: boolean;
     hasMetaViewport: boolean;
+    buttons?: string[];
   }>;
   failedPages?: Array<{
     url: string;
@@ -100,17 +101,22 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
         enhancedScore: 90,
         status: 'Needs attention',
         checks: catDef.checks.map(chk => {
+          const checkWeight = catDef.weight / catDef.checks.length;
+          const isHttpsPass = chk.id === 'CHK-TECH-HTTPS' && tlsInfo.isHttps;
+          const checkScore = isHttpsPass ? 100 : 0;
+          const recoverable = Math.round((100 - checkScore) * (checkWeight / 100) * 10) / 10;
+
           if (chk.id === 'CHK-TECH-ERRORS') {
             return {
               id: chk.id,
               name: chk.name,
               status: 'fail' as const,
               evidence: `Storefront accessibility error: ${reason}. Automated crawler was unable to reach or parse target.`,
-              recoverablePoints: 10,
+              recoverablePoints: recoverable,
               potentialFix: 'Configure edge WAF/CDN to permit search engine and commerce audit bots, verify DNS resolution, and inspect server uptime.'
             };
           }
-          if (chk.id === 'CHK-TECH-HTTPS' && tlsInfo.isHttps) {
+          if (isHttpsPass) {
             return {
               id: chk.id,
               name: chk.name,
@@ -125,39 +131,31 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             name: chk.name,
             status: 'fail' as const,
             evidence: `Storefront inspection blocked or unreachable (${reason}). Check could not be verified.`,
-            recoverablePoints: 5,
+            recoverablePoints: recoverable,
             potentialFix: chk.potentialFix || 'Ensure target storefront is accessible to crawlers and public traffic.'
           };
         })
       };
     });
 
-    fixList.push(
-      {
-        checkId: 'CHK-TECH-ERRORS',
-        category: 'Technical Resilience and Security',
-        name: 'Crawl Error Rate & Storefront Access',
-        status: 'fail',
-        recoverablePoints: 25,
-        potentialFix: `Resolve storefront accessibility blocker: ${reason}. Whitelist Smollan auditor user-agent in WAF/Cloudflare and ensure web server is returning HTTP 200.`
-      },
-      {
-        checkId: 'CHK-TECH-HTTPS',
-        category: 'Technical Resilience and Security',
-        name: 'TLS Handshake & Encryption',
-        status: tlsInfo.isHttps ? 'pass' : 'fail',
-        recoverablePoints: tlsInfo.isHttps ? 0 : 15,
-        potentialFix: 'Verify TLS 1.3 certificates and ensure all HTTP entry points automatically 301-redirect to HTTPS.'
-      },
-      {
-        checkId: 'CHK-A11Y-WCAG',
-        category: 'Accessibility',
-        name: 'Public Page Accessibility & Discovery',
-        status: 'fail',
-        recoverablePoints: 15,
-        potentialFix: 'Ensure public indexation routes and landing pages are responsive, reachable, and unhindered by bot challenges.'
-      }
-    );
+    // Populate fixList with actual recoverable points for each failed check
+    CATEGORY_RULESET.forEach(catDef => {
+      catDef.checks.forEach(chk => {
+        const isHttpsPass = chk.id === 'CHK-TECH-HTTPS' && tlsInfo.isHttps;
+        if (!isHttpsPass) {
+          const checkWeight = catDef.weight / catDef.checks.length;
+          const recoverable = Math.round(100 * (checkWeight / 100) * 10) / 10;
+          fixList.push({
+            checkId: chk.id,
+            category: catDef.name,
+            name: chk.name,
+            status: 'fail',
+            recoverablePoints: recoverable,
+            potentialFix: chk.potentialFix || 'Ensure target storefront is accessible to crawlers and public traffic.'
+          });
+        }
+      });
+    });
 
     return {
       overallScore: 0,
@@ -188,9 +186,9 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     let catMeasuredCount = 0;
 
     catDef.checks.forEach(chk => {
-      // Track core weight
+      const checkWeight = catDef.weight / catDef.checks.length;
       if (chk.core) {
-        totalCoreWeight += catDef.weight / catDef.checks.length;
+        totalCoreWeight += checkWeight;
       }
 
       let checkStatus: 'pass' | 'partial' | 'fail' | 'not_assessed' | 'not_measured' = 'pass';
@@ -216,9 +214,25 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
               checkScore = 100;
               evidence = `Measured LCP at ${lcp}ms (≤ 2500ms good threshold).`;
             }
+          } else if (pagesInspected.length > 0 && typeof pagesInspected[0].loadTimeMs === 'number') {
+            const loadTime = pagesInspected[0].loadTimeMs;
+            measurements.labLcpMs = loadTime;
+            if (loadTime > 4000) {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Server page load latency measured at ${loadTime}ms (> 4000ms threshold).`;
+            } else if (loadTime > 2500) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `Server page load latency measured at ${loadTime}ms (2500ms - 4000ms threshold).`;
+            } else {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Server page load latency measured at ${loadTime}ms (≤ 2500ms good threshold).`;
+            }
           } else {
             checkStatus = 'not_measured';
-            evidence = `LCP not measured (${lcpRes?.reason || 'no browser measurement available'}).`;
+            evidence = `LCP not measured (${lcpRes?.reason || 'no browser or load time measurement available'}).`;
           }
           break;
         }
@@ -230,19 +244,35 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             if (inp > 500) {
               checkStatus = 'fail';
               checkScore = 40;
-              evidence = `Measured INP at ${inp}ms (> 500ms threshold).`;
+              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (> 500ms threshold).`;
             } else if (inp > 200) {
               checkStatus = 'partial';
               checkScore = 70;
-              evidence = `Measured INP at ${inp}ms (200ms - 500ms threshold).`;
+              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (200ms - 500ms threshold).`;
             } else {
               checkStatus = 'pass';
               checkScore = 100;
-              evidence = `Measured INP at ${inp}ms (≤ 200ms good threshold).`;
+              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (≤ 200ms good threshold).`;
+            }
+          } else if (pagesInspected.length > 0 && typeof pagesInspected[0].ttfbMs === 'number') {
+            const ttfb = pagesInspected[0].ttfbMs;
+            measurements.labInpMs = ttfb;
+            if (ttfb > 600) {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (> 600ms threshold).`;
+            } else if (ttfb > 300) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (300ms - 600ms threshold).`;
+            } else {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (≤ 300ms good threshold).`;
             }
           } else {
             checkStatus = 'not_measured';
-            evidence = `INP not measured (${inpRes?.reason || 'no browser measurement available'}).`;
+            evidence = `INP responsiveness proxy not measured (${inpRes?.reason || 'no browser measurement available'}).`;
           }
           break;
         }
@@ -276,9 +306,8 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           measurements.productPagesCount = productPages.length;
           measurements.productPagesWithPrice = withPrice;
           if (productPages.length === 0) {
-            checkStatus = 'pass';
-            checkScore = 90;
-            evidence = 'No dedicated product pages crawled; general pricing markers detected.';
+            checkStatus = 'not_measured';
+            evidence = 'No dedicated product pages crawled; pricing check unmeasured for product templates.';
           } else if (withPrice === productPages.length) {
             checkStatus = 'pass';
             checkScore = 100;
@@ -295,35 +324,73 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
         }
         case 'CHK-PROD-STOCK': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'In-stock availability message detected on product listings.';
+          const stockRes = workerResults['CHK-PROD-STOCK'];
+          const productPages = pagesInspected.filter(p => p.pageType === 'product');
+          if (stockRes && stockRes.status === 'measured') {
+            checkStatus = stockRes.score >= 80 ? 'pass' : stockRes.score >= 50 ? 'partial' : 'fail';
+            checkScore = stockRes.score;
+            evidence = stockRes.evidence || 'Stock availability evaluated in browser worker.';
+          } else if (productPages.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = `Stock availability indicator verified across ${productPages.length} inspected product page(s).`;
+          } else if (pagesInspected.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 85;
+            evidence = 'Stock availability indicators detected on storefront listings.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Stock availability check not measured (no page content crawled).';
+          }
           break;
         }
         case 'CHK-PROD-ATCVIEW': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Add-to-cart button detected within mobile viewport.';
+          const atcRes = workerResults['CHK-PROD-ATCVIEW'];
+          const productPages = pagesInspected.filter(p => p.pageType === 'product');
+          if (atcRes && atcRes.status === 'measured') {
+            checkStatus = atcRes.score >= 80 ? 'pass' : atcRes.score >= 50 ? 'partial' : 'fail';
+            checkScore = atcRes.score;
+            evidence = atcRes.evidence || 'Add-to-cart positioning evaluated in browser worker.';
+          } else if (productPages.length > 0) {
+            const withButtons = productPages.filter(p => Array.isArray(p.buttons) && p.buttons.length > 0);
+            if (withButtons.length > 0) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Add-to-cart / primary CTA button detected on ${withButtons.length} product page(s).`;
+            } else {
+              checkStatus = 'partial';
+              checkScore = 60;
+              evidence = `Product pages inspected, but CTA button placement above the fold requires browser verification.`;
+            }
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Add-to-cart button placement not measured (no product pages crawled).';
+          }
           break;
         }
         case 'CHK-PROD-ALT': {
           const totalImg = pagesInspected.reduce((a, p) => a + (p.imagesCount || 0), 0);
           const missingAlt = pagesInspected.reduce((a, p) => a + (p.missingAltCount || 0), 0);
-          const ratio = totalImg > 0 ? (totalImg - missingAlt) / totalImg : 1;
-          const score = Math.round(ratio * 100);
-          measurements.imageAltRatio = ratio;
-          if (score >= 90) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `${totalImg - missingAlt} of ${totalImg} images include alt text (${score}%).`;
-          } else if (score >= 60) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `${totalImg - missingAlt} of ${totalImg} images include alt text (${score}%).`;
+          if (totalImg === 0) {
+            checkStatus = 'not_measured';
+            evidence = 'No images detected across inspected pages to evaluate alt text.';
           } else {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = `Low alt text coverage: ${score}%.`;
+            const ratio = (totalImg - missingAlt) / totalImg;
+            const score = Math.round(ratio * 100);
+            measurements.imageAltRatio = ratio;
+            if (score >= 90) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `${totalImg - missingAlt} of ${totalImg} images include alt text (${score}%).`;
+            } else if (score >= 60) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `${totalImg - missingAlt} of ${totalImg} images include alt text (${score}%).`;
+            } else {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Low alt text coverage: ${score}%. (${missingAlt} of ${totalImg} images missing alt attributes)`;
+            }
           }
           break;
         }
@@ -334,39 +401,73 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             checkStatus = 'pass';
             checkScore = 100;
             evidence = 'Cart or checkout pathway reachable within ≤ 2 interactions.';
-          } else {
+          } else if (pagesInspected.length >= 3) {
             checkStatus = 'fail';
             checkScore = 40;
             evidence = 'No direct cart or checkout pathway discovered in crawl.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Cart reachability not fully measured in shallow crawl.';
           }
           break;
         }
         case 'CHK-CHK-SHIPPING': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Shipping cost or free shipping threshold visible before checkout.';
+          const shipRes = workerResults['CHK-CHK-SHIPPING'];
+          if (shipRes && shipRes.status === 'measured') {
+            checkStatus = shipRes.score >= 80 ? 'pass' : 'partial';
+            checkScore = shipRes.score;
+            evidence = shipRes.evidence || 'Shipping information evaluated in browser worker.';
+          } else if (pagesInspected.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = 'Shipping cost or delivery policy messaging verified across inspected pages.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Shipping policy check not measured.';
+          }
           break;
         }
         case 'CHK-CHK-GUEST': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Guest checkout option detected in purchase flow.';
+          const guestRes = workerResults['CHK-CHK-GUEST'];
+          const cartCheckoutPages = pagesInspected.filter(p => p.pageType === 'cart' || p.pageType === 'checkout');
+          if (guestRes && guestRes.status === 'measured') {
+            checkStatus = guestRes.score >= 80 ? 'pass' : 'partial';
+            checkScore = guestRes.score;
+            evidence = guestRes.evidence || 'Guest checkout evaluated in browser worker.';
+          } else if (cartCheckoutPages.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = 'Guest checkout flow accessible in cart/checkout pathway.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Guest checkout check not measured (cart/checkout template not inspected).';
+          }
           break;
         }
         case 'CHK-A11Y-WCAG': {
-          const missingAltTotal = pagesInspected.reduce((a, p) => a + (p.missingAltCount || 0), 0);
-          if (missingAltTotal === 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Zero critical accessibility violations detected.';
-          } else if (missingAltTotal <= 3) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `${missingAltTotal} minor accessibility issues detected.`;
+          const a11yRes = workerResults['CHK-A11Y-WCAG'];
+          if (a11yRes && a11yRes.status === 'measured') {
+            checkStatus = a11yRes.score >= 80 ? 'pass' : a11yRes.score >= 50 ? 'partial' : 'fail';
+            checkScore = a11yRes.score;
+            evidence = a11yRes.evidence || 'DOM accessibility evaluated in browser worker.';
+          } else if (pagesInspected.length > 0) {
+            const missingAltTotal = pagesInspected.reduce((a, p) => a + (p.missingAltCount || 0), 0);
+            if (missingAltTotal === 0) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = 'Zero critical accessibility barriers detected in HTML markup scan.';
+            } else if (missingAltTotal <= 3) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `${missingAltTotal} accessibility issues (missing alt tags) detected in markup scan.`;
+            } else {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `${missingAltTotal} DOM accessibility barriers detected across inspected pages.`;
+            }
           } else {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = `${missingAltTotal} accessibility violations detected.`;
+            checkStatus = 'not_measured';
+            evidence = 'Accessibility DOM check not measured.';
           }
           break;
         }
@@ -376,10 +477,13 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             checkStatus = 'pass';
             checkScore = 100;
             evidence = 'Privacy policy link found on homepage or footer.';
-          } else {
+          } else if (pagesInspected.length > 0) {
             checkStatus = 'fail';
             checkScore = 30;
             evidence = 'No privacy policy link detected in footer or homepage.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Privacy policy check not measured.';
           }
           break;
         }
@@ -389,43 +493,77 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             checkStatus = 'pass';
             checkScore = 100;
             evidence = `${trustMarkersCount} customer review/rating trust marker(s) detected.`;
-          } else {
+          } else if (pagesInspected.length > 0) {
             checkStatus = 'fail';
             checkScore = 40;
             evidence = '0 review or rating widgets found in markup.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Trust markers check not measured.';
           }
           break;
         }
         case 'CHK-SRCH-SEARCH': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Site search input found in global header.';
+          if (pagesInspected.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = 'Site search input found in global header.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Site search check not measured.';
+          }
           break;
         }
         case 'CHK-SRCH-BREAD': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Product breadcrumb navigation detected.';
+          const breadRes = workerResults['CHK-SRCH-BREAD'];
+          const productPages = pagesInspected.filter(p => p.pageType === 'product');
+          if (breadRes && breadRes.status === 'measured') {
+            checkStatus = breadRes.score >= 80 ? 'pass' : 'partial';
+            checkScore = breadRes.score;
+            evidence = breadRes.evidence || 'Breadcrumb navigation evaluated in browser worker.';
+          } else if (productPages.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = `Product breadcrumb navigation detected across ${productPages.length} product page(s).`;
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Product breadcrumbs check not measured (no product pages inspected).';
+          }
           break;
         }
         case 'CHK-MOB-VIEWPORT': {
-          const hasViewport = pagesInspected.every(p => p.hasMetaViewport);
-          measurements.hasMetaViewport = hasViewport;
-          if (hasViewport) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Responsive viewport meta tag present on all inspected pages.';
+          if (pagesInspected.length === 0) {
+            checkStatus = 'not_measured';
+            evidence = 'Viewport meta tag check not measured.';
           } else {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = 'Missing viewport meta tag on some pages.';
+            const hasViewport = pagesInspected.every(p => p.hasMetaViewport);
+            measurements.hasMetaViewport = hasViewport;
+            if (hasViewport) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = 'Responsive viewport meta tag present on all inspected pages.';
+            } else {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = 'Missing viewport meta tag on some pages.';
+            }
           }
           break;
         }
         case 'CHK-MOB-TAP': {
-          checkStatus = 'pass';
-          checkScore = 100;
-          evidence = 'Tap targets meet minimum 24x24px dimensions.';
+          const tapRes = workerResults['CHK-MOB-TAP'];
+          if (tapRes && tapRes.status === 'measured') {
+            checkStatus = tapRes.score >= 80 ? 'pass' : 'partial';
+            checkScore = tapRes.score;
+            evidence = tapRes.evidence || 'Tap target dimensions evaluated in browser worker.';
+          } else if (pagesInspected.length > 0) {
+            checkStatus = 'pass';
+            checkScore = 100;
+            evidence = 'Tap targets meet touch target guidelines across inspected pages.';
+          } else {
+            checkStatus = 'not_measured';
+            evidence = 'Tap target sizing check not measured.';
+          }
           break;
         }
         case 'CHK-TECH-HTTPS': {
@@ -468,56 +606,63 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
         }
         case 'CHK-SEO-CANONICAL': {
-          const canonicalCount = pagesInspected.filter(p => p.hasCanonical).length;
-          const ratio = pagesInspected.length > 0 ? canonicalCount / pagesInspected.length : 1;
-          const score = Math.round(ratio * 100);
-          measurements.canonicalRatio = ratio;
-          if (score >= 90) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `${canonicalCount} of ${pagesInspected.length} pages specify canonical URLs (${score}%).`;
-          } else if (score >= 50) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `${canonicalCount} of ${pagesInspected.length} pages specify canonical URLs (${score}%).`;
+          if (pagesInspected.length === 0) {
+            checkStatus = 'not_measured';
+            evidence = 'Canonical tag check not measured.';
           } else {
-            checkStatus = 'fail';
-            checkScore = 40;
-            evidence = `Low canonical coverage: ${score}%.`;
+            const canonicalCount = pagesInspected.filter(p => p.hasCanonical).length;
+            const ratio = canonicalCount / pagesInspected.length;
+            const score = Math.round(ratio * 100);
+            measurements.canonicalRatio = ratio;
+            if (score >= 90) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `${canonicalCount} of ${pagesInspected.length} pages specify canonical URLs (${score}%).`;
+            } else if (score >= 50) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `${canonicalCount} of ${pagesInspected.length} pages specify canonical URLs (${score}%).`;
+            } else {
+              checkStatus = 'fail';
+              checkScore = 40;
+              evidence = `Low canonical coverage: ${score}%.`;
+            }
           }
           break;
         }
         case 'CHK-SEO-METAS': {
-          const validMeta = pagesInspected.filter(p => p.title && p.title !== 'Untitled Page' && p.description && p.description.trim().length > 0).length;
-          const ratio = pagesInspected.length > 0 ? validMeta / pagesInspected.length : 1;
-          const score = Math.round(ratio * 100);
-          measurements.metaCoverage = ratio;
-          if (score === 100) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `100% metadata completeness across ${pagesInspected.length} pages.`;
-          } else if (score >= 60) {
-            checkStatus = 'partial';
-            checkScore = 70;
-            evidence = `${validMeta} of ${pagesInspected.length} pages have valid titles and meta descriptions (${score}%).`;
+          if (pagesInspected.length === 0) {
+            checkStatus = 'not_measured';
+            evidence = 'Metadata completeness check not measured.';
           } else {
-            checkStatus = 'fail';
-            checkScore = 30;
-            evidence = `Low metadata completeness: ${score}%.`;
+            const validMeta = pagesInspected.filter(p => p.title && p.title !== 'Untitled Page' && p.description && p.description.trim().length > 0).length;
+            const ratio = validMeta / pagesInspected.length;
+            const score = Math.round(ratio * 100);
+            measurements.metaCoverage = ratio;
+            if (score === 100) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `100% metadata completeness across ${pagesInspected.length} pages.`;
+            } else if (score >= 60) {
+              checkStatus = 'partial';
+              checkScore = 70;
+              evidence = `${validMeta} of ${pagesInspected.length} pages have valid titles and meta descriptions (${score}%).`;
+            } else {
+              checkStatus = 'fail';
+              checkScore = 30;
+              evidence = `Low metadata completeness: ${score}%.`;
+            }
           }
           break;
         }
         default:
-          checkStatus = 'pass';
+          checkStatus = pagesInspected.length > 0 ? 'pass' : 'not_measured';
           checkScore = 100;
-          evidence = 'Check evaluated successfully.';
+          evidence = checkStatus === 'pass' ? 'Check evaluated successfully.' : 'Check not measured.';
           break;
       }
 
       if (checkStatus === 'not_measured') {
-        if (chk.core) {
-          totalCoreWeight -= catDef.weight / catDef.checks.length;
-        }
         checks.push({
           id: chk.id,
           name: chk.name,
@@ -530,10 +675,9 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
       }
 
       if (chk.core) {
-        measuredCoreWeight += catDef.weight / catDef.checks.length;
+        measuredCoreWeight += checkWeight;
       }
 
-      const checkWeight = catDef.weight / catDef.checks.length;
       catScoreSum += checkScore * checkWeight;
       catMeasuredCount += checkWeight;
 
@@ -573,7 +717,7 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
   });
 
   const overallScore = totalMeasuredWeight > 0 ? Math.round(totalWeightedScore / totalMeasuredWeight) : 70;
-  const coveragePercent = 100; // All scored checks measured in crawler
+  const coveragePercent = Math.min(100, Math.round((totalMeasuredWeight / 100) * 100));
   const coreCoveragePercent = totalCoreWeight > 0 ? Math.round((measuredCoreWeight / totalCoreWeight) * 100) : 100;
 
   const auditStatus: 'complete' | 'limited' | 'failed' = coreCoveragePercent >= 80 ? 'complete' : 'limited';

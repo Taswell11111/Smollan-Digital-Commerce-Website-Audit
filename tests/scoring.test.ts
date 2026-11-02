@@ -50,6 +50,7 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     imagesCount: 5,
     missingAltCount: 0,
     hasPrice: true,
+    buttons: ['Add to Cart', 'Buy Now'],
     hasCanonical: true,
     hasMetaViewport: true
   };
@@ -67,6 +68,7 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     imagesCount: 2,
     missingAltCount: 0,
     hasPrice: false,
+    buttons: ['Checkout', 'Pay Now'],
     hasCanonical: true,
     hasMetaViewport: true
   };
@@ -79,7 +81,10 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
       tlsInfo: { isHttps: true, validCert: true, httpToHttpsRedirect: true },
       privacyPolicyFound: true,
       trustMarkersCount: 2,
-      homepageReachable: true
+      homepageReachable: true,
+      workerResults: {
+        'CHK-PERF-CLS': { status: 'measured', value: 0.02 }
+      }
     });
 
     expect(result.overallScore).toBe(100);
@@ -158,5 +163,47 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     expect(clsCheck).toBeDefined();
     expect(clsCheck!.status).toBe('not_measured');
     expect(clsCheck!.status).not.toBe('pass');
+  });
+
+  it('calculates recoverablePoints correctly based on check weight without 10x inflation factor', () => {
+    // Technical Resilience category weight is 12%, has 2 checks => check weight is 6%
+    // If CHK-TECH-HTTPS fails (score 0), lost points on 0-100 overall scale = (100 - 0) * (6 / 100) = 6.0 points
+    const result = calculateScores({
+      pagesInspected: [passingHomepage, passingProduct, passingCheckout],
+      failedPages: [],
+      pagesDiscoveredCount: 3,
+      tlsInfo: { isHttps: false, validCert: false, httpToHttpsRedirect: false },
+      privacyPolicyFound: true,
+      trustMarkersCount: 2,
+      homepageReachable: true
+    });
+
+    const techCat = result.categoryResults['Technical Resilience and Security'];
+    const httpsCheck = techCat.checks.find((c: any) => c.id === 'CHK-TECH-HTTPS');
+    expect(httpsCheck).toBeDefined();
+    expect(httpsCheck!.status).toBe('fail');
+    // Check weight = 12 / 2 = 6, check score = 0 => recoverable points = 6.0 (NOT 60!)
+    expect(httpsCheck!.recoverablePoints).toBe(6.0);
+
+    const fixItem = result.fixList.find(f => f.checkId === 'CHK-TECH-HTTPS');
+    expect(fixItem).toBeDefined();
+    expect(fixItem!.recoverablePoints).toBe(6.0);
+  });
+
+  it('uninspected page types yield not_measured check status', () => {
+    // Only homepage inspected (no product pages)
+    const result = calculateScores({
+      pagesInspected: [passingHomepage],
+      failedPages: [],
+      pagesDiscoveredCount: 1,
+      tlsInfo: { isHttps: true, validCert: true, httpToHttpsRedirect: true },
+      privacyPolicyFound: true,
+      trustMarkersCount: 0,
+      homepageReachable: true
+    });
+
+    const prodCat = result.categoryResults['Product Page'];
+    const priceCheck = prodCat.checks.find((c: any) => c.id === 'CHK-PROD-PRICE');
+    expect(priceCheck!.status).toBe('not_measured');
   });
 });
