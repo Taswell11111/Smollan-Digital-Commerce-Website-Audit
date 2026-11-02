@@ -42,7 +42,8 @@ import {
   Code2,
   Cpu,
   Send,
-  Database
+  Database,
+  Image as ImageIcon
 } from 'lucide-react';
 import { AuditRecord } from '../types';
 import { ProductReviews } from './ProductReviews';

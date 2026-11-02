@@ -67,18 +67,23 @@ const pitchLimiter = rateLimit({
 
 const PORT = 3000;
 
-// Initialize Gemini client with aistudio-build user-agent telemetry
-const apiKey = process.env.GEMINI_API_KEY || '';
-const ai = apiKey
-  ? new GoogleGenAI({
+// Shared Gemini client utility with aistudio-build user-agent telemetry
+let cachedAI: GoogleGenAI | null = null;
+function getAI() {
+  const apiKey = process.env.GEMINI_API_KEY || '';
+  if (!apiKey) return null;
+  if (!cachedAI) {
+    cachedAI = new GoogleGenAI({
       apiKey,
       httpOptions: {
         headers: {
           'User-Agent': 'aistudio-build'
         }
       }
-    })
-  : null;
+    });
+  }
+  return cachedAI;
+}
 
 // Storage directory setup
 const STORAGE_DIR = path.join(process.cwd(), 'data');
@@ -318,6 +323,11 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
 
       const $ = cheerio.load(html);
 
+      // Clean visible text by stripping <script>, <style>, <noscript>
+      const $clean = cheerio.load(html);
+      $clean('script, style, noscript').remove();
+      const visibleText = $clean('body').text();
+
       // Extract metadata
       const title = $('title').text().trim() || 'Untitled Page';
       const description = $('meta[name="description"]').attr('content')?.trim() || '';
@@ -327,7 +337,7 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       // Classify page type (improved robustness)
       let pageType = 'content';
       const pathLower = new URL(currentUrl).pathname.toLowerCase();
-      const bodyText = $clean('body').text().toLowerCase();
+      const bodyText = visibleText.toLowerCase();
       const htmlLower = html.toLowerCase();
 
       if (pathLower === '/' || pathLower === '') {
@@ -362,11 +372,6 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       });
 
       const buttons = $('button, a.btn, input[type="submit"]').map((_, el) => $(el).text().trim()).get().filter(Boolean);
-
-      // Clean visible text by stripping <script>, <style>, <noscript>
-      const $clean = cheerio.load(html);
-      $clean('script, style, noscript').remove();
-      const visibleText = $clean('body').text();
 
       // Product pricing: currency symbol followed by digits with decimal or thousands format
       const priceRegex = /(?:R|\$|€|£)\s?\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?|(?:\bZAR\b|\bUSD\b|\bEUR\b|\bGBP\b)\s?\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?/i;
@@ -1122,6 +1127,7 @@ async function runAudit(auditId: string, params: any) {
     const inputDataString = JSON.stringify({ categoryResults: scoring.categoryResults, measuredFindings });
     const inputNumbers = new Set(inputDataString.match(/\b\d+(\.\d+)?\b/g) || []);
 
+    const ai = getAI();
     if (ai && measuredFindings.length > 0 && !crawlErrorNotice) {
       try {
         const prompt = `You are an eCommerce auditor. Synthesize an executive verdict for ${targetUrl} based on measured score of ${scoring.overallScore}/100 and potential uplift of +${scoring.scoreUplift} pts. Return JSON: {"executiveVerdict": {"headline": "Short punchy summary under 12 words", "summaryText": "Executive rationale under 35 words"}}`;
@@ -1532,6 +1538,7 @@ app.post('/api/pitch', pitchLimiter, async (req: Request, res: Response) => {
       optOutNotice: senderConfig.optOutNotice
     };
 
+    const ai = getAI();
     if (!ai) {
       return res.json({
         subjectLines: defaultOptions.map(o => o.subject),
@@ -1549,7 +1556,8 @@ app.post('/api/pitch', pitchLimiter, async (req: Request, res: Response) => {
           `How are conversion rates in ${resolvedWeakest} currently tracking across peak shopping periods?`,
           `What is your technical roadmap for addressing measured findings in ${resolvedWeakest} before the upcoming code freeze?`
         ],
-        senderIdentity: senderBlock
+        senderIdentity: senderBlock,
+        notice: 'AI features are currently limited. Please check your Gemini API key in the Settings > Secrets panel to enable full capabilities.'
       });
     }
 
@@ -1649,8 +1657,9 @@ Return JSON matching:
 });
 
 app.post('/api/executive-synopsis', async (req: Request, res: Response) => {
+  const ai = getAI();
   if (!ai) {
-    return res.status(500).json({ error: 'AI service not configured.' });
+    return res.status(200).json({ synopsis: "Note: AI executive summary is currently unavailable. Please ensure your Gemini API key is configured in the Settings > Secrets panel to enable automated strategic analysis." });
   }
   const { audit } = req.body;
   if (!audit) {
@@ -1680,7 +1689,11 @@ app.post('/api/executive-synopsis', async (req: Request, res: Response) => {
     res.json({ synopsis: response.text });
   } catch (err: any) {
     console.error('Synopsis generation error:', err);
-    res.status(500).json({ error: 'Failed to generate synopsis.' });
+    const status = err.status || 500;
+    if (status === 403 || status === 400) {
+      return res.status(200).json({ synopsis: "Notice: The strategic synopsis could not be generated due to an invalid or restricted API key. Please verify your credentials in the Settings > Secrets panel." });
+    }
+    res.status(200).json({ synopsis: "Notice: Strategic synopsis generation encountered a temporary error. This may be due to high traffic or service limitations." });
   }
 });
 
