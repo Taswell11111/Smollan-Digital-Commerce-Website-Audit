@@ -33,6 +33,7 @@ interface UrlVerificationModalProps {
     selectedMaxPages: number
   ) => void;
   onReverify: (newUrl: string) => void;
+  onUpdateInspection: (newData: Partial<UrlInspectionResult>) => void;
   currentDepth: 'quick' | 'standard' | 'deep';
 }
 
@@ -43,8 +44,10 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
   isLoading,
   onConfirm,
   onReverify,
+  onUpdateInspection,
   currentDepth,
 }) => {
+  const [isDiscovering, setIsDiscovering] = useState(false);
   const [selectedDepth, setSelectedDepth] = useState<'quick' | 'standard' | 'deep'>(currentDepth);
   const [editedUrl, setEditedUrl] = useState(inspection?.resolvedUrl || inspection?.inputUrl || '');
   const [isEditing, setIsEditing] = useState(false);
@@ -53,7 +56,7 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
   const [showDiscoveredUrls, setShowDiscoveredUrls] = useState(false);
 
   // Available pages discovered on target domain
-  const availablePages = inspection?.availablePagesCount || inspection?.internalLinksCount || 15;
+  const availablePages = inspection?.pagesDiscoveredCount || inspection?.availablePagesCount || inspection?.internalLinksCount || 15;
   const [selectedMaxPages, setSelectedMaxPages] = useState<number>(
     Math.min(availablePages, currentDepth === 'quick' ? 5 : currentDepth === 'deep' ? 50 : 15)
   );
@@ -67,7 +70,7 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
       setEditedUrl(inspection.resolvedUrl || inspection.inputUrl);
       setScreenshotError(false);
       setUseFallbackScreenshot(false);
-      const avail = inspection.availablePagesCount || inspection.internalLinksCount || 15;
+      const avail = inspection.pagesDiscoveredCount || inspection.availablePagesCount || inspection.internalLinksCount || 15;
       const initialBudget = Math.min(avail, selectedDepth === 'quick' ? 5 : selectedDepth === 'deep' ? 50 : 15);
       setSelectedMaxPages(Math.max(1, initialBudget));
     }
@@ -226,14 +229,51 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
                     icon: ShieldCheck, 
                     color: inspection.hasSitemap ? 'text-blue-400' : 'text-amber-400' 
                   },
-                  { label: 'Discovered Pages', val: `${availablePages} Available`, icon: Globe, color: 'text-[#00e5ff]' }
+                  { 
+                    label: 'Discovered Pages', 
+                    val: `${availablePages} Available`, 
+                    icon: Globe, 
+                    color: 'text-[#00e5ff]',
+                    action: (
+                      <button
+                        disabled={isDiscovering}
+                        onClick={async () => {
+                          if (!inspection) return;
+                          setIsDiscovering(true);
+                          try {
+                            const res = await fetch('/api/discover-pages', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify({ url: inspection.resolvedUrl || inspection.inputUrl, depth: 'deep' })
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                              onUpdateInspection({
+                                availablePagesCount: data.discoveredCount,
+                                internalLinksCount: data.discoveredCount,
+                                sampleDiscoveredUrls: data.pages.map((p: any) => p.url)
+                              });
+                            }
+                          } catch (err) {
+                            console.error('Discovery failed', err);
+                          } finally {
+                            setIsDiscovering(false);
+                          }
+                        }}
+                        className={`mt-1 text-[9px] font-black uppercase tracking-widest hover:underline ${isDiscovering ? 'text-white/20 animate-pulse' : 'text-[#00e5ff]'}`}
+                      >
+                        {isDiscovering ? 'Discovering...' : 'Deep Discovery Scan'}
+                      </button>
+                    )
+                  }
                 ].map((stat, i) => (
-                  <div key={i} className="p-5 bg-white/[0.03] rounded-[28px] border border-white/5 hover:bg-white/[0.05] transition-colors">
+                  <div key={i} className="p-5 bg-white/[0.03] rounded-[28px] border border-white/5 hover:bg-white/[0.05] transition-colors relative">
                     <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.2em] text-white/30 mb-2">
                       <stat.icon className={`w-4 h-4 ${stat.color}`} />
                       <span>{stat.label}</span>
                     </div>
                     <div className="text-sm font-black text-white uppercase tracking-widest truncate">{stat.val}</div>
+                    {'action' in stat && stat.action}
                   </div>
                 ))}
               </div>
@@ -299,10 +339,24 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
                       <Sliders className="w-4 h-4 text-[#00e5ff]" />
                       <span>Select Scrape Volume (Number of Pages to Audit):</span>
                     </label>
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-black text-cyan-300 font-mono bg-[#002157] px-3 py-1 rounded-xl border border-cyan-400/40">
-                        {selectedMaxPages} Pages Selected
-                      </span>
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center">
+                        <input
+                          type="number"
+                          min={1}
+                          max={maxAllowedCrawl}
+                          value={selectedMaxPages}
+                          onChange={(e) => {
+                            const val = Math.min(maxAllowedCrawl, Math.max(1, parseInt(e.target.value, 10) || 1));
+                            setSelectedMaxPages(val);
+                            if (val <= 5) setSelectedDepth('quick');
+                            else if (val <= 25) setSelectedDepth('standard');
+                            else setSelectedDepth('deep');
+                          }}
+                          className="w-20 px-3 py-1.5 bg-[#002157] border border-cyan-400/40 rounded-xl text-cyan-300 font-mono text-sm font-black focus:outline-none focus:border-[#00e5ff] focus:ring-1 focus:ring-[#00e5ff]"
+                        />
+                        <span className="ml-2 text-xs font-black text-white/40 uppercase tracking-widest">Pages</span>
+                      </div>
                       <span className="text-[11px] font-bold text-white/40">
                         (of {availablePages} available)
                       </span>
@@ -370,7 +424,7 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
                   {/* Range Slider for granular control */}
                   <div className="space-y-2 pt-2">
                     <div className="flex items-center justify-between text-[11px] font-bold text-white/50">
-                      <span>1 Page (Homepage only)</span>
+                      <span>1 Page</span>
                       <span className="text-[#00e5ff] font-mono font-bold">
                         Scraping budget: {selectedMaxPages} page{selectedMaxPages > 1 ? 's' : ''} ({Math.min(100, Math.round((selectedMaxPages / Math.max(availablePages, 1)) * 100))}% coverage)
                       </span>

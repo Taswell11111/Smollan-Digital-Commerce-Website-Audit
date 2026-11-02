@@ -24,6 +24,7 @@ interface NewAuditFormProps {
     businessCategory: string;
     targetMarket: string;
     primaryObjective: string;
+    primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
     allowCartJourney: boolean;
     cartJourneyConfirmed: boolean;
@@ -43,6 +44,8 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
   const [inlineInspection, setInlineInspection] = useState<UrlInspectionResult | null>(null);
   const [isInspecting, setIsInspecting] = useState(false);
 
+  const [primaryKeyword, setPrimaryKeyword] = useState('');
+
   const inspectStorefront = async (targetUrl: string) => {
     if (!targetUrl || !targetUrl.includes('.')) return;
     setIsInspecting(true);
@@ -57,8 +60,27 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
         setInlineInspection(data);
         if (!businessName && data.pageTitle) {
           // Extract brand or clean page title
-          const titleClean = data.pageTitle.split('|')[0].split('-')[0].trim();
+          const titleParts = data.pageTitle.split(/[|:-]/);
+          const titleClean = titleParts[0].trim();
           setBusinessName(titleClean || data.domain);
+          
+          // Attempt to derive a practical product/service keyword if empty
+          if (!primaryKeyword) {
+            const desc = (data.metaDescription || '').toLowerCase();
+            const title = (data.pageTitle || '').toLowerCase();
+            
+            // Extract common commerce keywords that aren't the brand
+            const candidates = ['shoes', 'clothing', 'furniture', 'electronics', 'consulting', 'logistics', 'software', 'apparel', 'beauty'];
+            const found = candidates.find(c => desc.includes(c) || title.includes(c));
+            if (found) {
+              setPrimaryKeyword(found);
+            } else if (titleParts.length > 1) {
+              const secondary = titleParts[1].trim().toLowerCase();
+              if (secondary.length > 3 && !secondary.includes(titleClean.toLowerCase())) {
+                setPrimaryKeyword(secondary);
+              }
+            }
+          }
         }
         const lowerUrl = targetUrl.toLowerCase();
         const lowerTitle = (data.pageTitle || '').toLowerCase();
@@ -102,6 +124,7 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
       businessCategory,
       targetMarket,
       primaryObjective: 'sales',
+      primaryKeyword: primaryKeyword.trim(),
       depth,
       allowCartJourney,
       cartJourneyConfirmed
@@ -212,10 +235,10 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
             )}
 
             {/* Step 2: Storefront Context & Metadata */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-2">
+            <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 pt-2">
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                  Brand / Business Name
+                  Brand Name
                 </label>
                 <div className="relative">
                   <input
@@ -230,7 +253,22 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
 
               <div className="space-y-1.5">
                 <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
-                  Business Model & Industry
+                  Product / Service Keyword
+                </label>
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={primaryKeyword}
+                    onChange={(e) => setPrimaryKeyword(e.target.value)}
+                    placeholder="e.g. running shoes"
+                    className="w-full px-3.5 py-2.5 rounded-lg border border-slate-300 text-sm font-medium text-slate-900 focus:outline-none focus:border-[#0f2866] focus:ring-1 focus:ring-[#0f2866]"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold uppercase tracking-wider text-slate-600">
+                  Industry
                 </label>
                 <select
                   value={businessCategory}
@@ -406,7 +444,7 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
               What the Smollan Intelligence Engine Evaluates
             </h2>
             <p className="text-sm text-slate-500 max-w-2xl mx-auto">
-              Our 12-factor evaluation framework benchmarks prospect storefronts against tier-1 digital commerce standards.
+              This 12-factor evaluation framework benchmarks prospect storefronts against tier-1 digital commerce standards.
             </p>
           </div>
 
@@ -470,23 +508,6 @@ export const NewAuditForm: React.FC<NewAuditFormProps> = ({ onStartAudit, isLoad
 
       {/* Trust & Enterprise Footprint Banner */}
       <section className="bg-slate-100 border-t border-slate-200 py-10 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-5xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-6 text-center sm:text-left">
-          <div className="space-y-1">
-            <h4 className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Smollan Global Digital Commerce Footprint
-            </h4>
-            <p className="text-sm font-semibold text-slate-800">
-              Connecting people, brands, and retail commerce across 60+ markets globally.
-            </p>
-          </div>
-          <div className="flex items-center gap-6 text-xs text-slate-600 font-medium">
-            <span>Deterministic Scoring</span>
-            <span>·</span>
-            <span>Gemini AI Synthesis</span>
-            <span>·</span>
-            <span>SSRF Sandboxed</span>
-          </div>
-        </div>
       </section>
     </div>
   );

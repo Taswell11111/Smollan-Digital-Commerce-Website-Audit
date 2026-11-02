@@ -140,9 +140,13 @@ export function calculateSeoForecast(
   const totalAnnualIncrementalRevenue = cumulativeRevenue;
   const formattedTotalRevenue = `R ${totalAnnualIncrementalRevenue.toLocaleString('en-ZA')}`;
 
+  const catName = (audit.businessCategory || 'eCommerce').split('&')[0].split('/')[0].trim().toLowerCase();
+  const category = catName.includes('fashion') ? 'clothing' : catName.includes('tech') ? 'electronics' : catName;
+  const practicalKeyword = audit.primaryKeyword || category;
+
   const keywordGaps: SeoKeywordGapItem[] = [
     {
-      keyword: `${brandName} online shopping`,
+      keyword: `best online shopping for ${practicalKeyword}`,
       searchVolume: 18500,
       currentRank: 4,
       competitorRank: 2,
@@ -151,10 +155,10 @@ export function calculateSeoForecast(
       estimatedTrafficUplift: 5400,
       status: 'Leader',
       intent: 'Transactional',
-      actionableRemedy: 'Inject branded Product JSON-LD schema, title tag localization, and site search sitelinks.'
+      actionableRemedy: 'Inject Product JSON-LD schema, title tag localization, and site search sitelinks.'
     },
     {
-      keyword: `buy ${brandName} South Africa`,
+      keyword: `buy ${practicalKeyword} South Africa`,
       searchVolume: 9800,
       currentRank: 14,
       competitorRank: 3,
@@ -166,7 +170,7 @@ export function calculateSeoForecast(
       actionableRemedy: 'Optimize H1 headings with regional ZAR modifiers and implement localized checkout metadata.'
     },
     {
-      keyword: `best retail online store ${audit.businessCategory || 'apparel'}`,
+      keyword: `top rated ${practicalKeyword} online store`,
       searchVolume: 24500,
       currentRank: 32,
       competitorRank: 6,
@@ -178,7 +182,7 @@ export function calculateSeoForecast(
       actionableRemedy: 'Expand collection landing pages with rich merchandising copy and category faceted breadcrumbs.'
     },
     {
-      keyword: `affordable ${audit.businessCategory || 'retail items'} delivery South Africa`,
+      keyword: `affordable ${practicalKeyword} with fast delivery`,
       searchVolume: 12200,
       currentRank: 19,
       competitorRank: 4,
@@ -190,7 +194,7 @@ export function calculateSeoForecast(
       actionableRemedy: 'Highlight shipping threshold badges and delivery terms in header meta and schema.'
     },
     {
-      keyword: `${brandName} size guide & customer reviews`,
+      keyword: `${practicalKeyword} size guide & customer reviews`,
       searchVolume: 6100,
       currentRank: 9,
       competitorRank: 1,
@@ -202,7 +206,7 @@ export function calculateSeoForecast(
       actionableRemedy: 'Publish crawlable HTML size guide tables and integrate review schema to capture rich star snippets.'
     },
     {
-      keyword: `discount code & specials ${brandName}`,
+      keyword: `discount code & specials on ${practicalKeyword}`,
       searchVolume: 8900,
       currentRank: 22,
       competitorRank: 5,
@@ -211,7 +215,7 @@ export function calculateSeoForecast(
       estimatedTrafficUplift: 3100,
       status: 'Opportunity',
       intent: 'Transactional',
-      actionableRemedy: 'Create dedicated promotions hub with canonical preservation and expiry schema.'
+      actionableRemedy: 'Deploy promotional schema markup and capture intent via dedicated specials landing pages.'
     }
   ];
 

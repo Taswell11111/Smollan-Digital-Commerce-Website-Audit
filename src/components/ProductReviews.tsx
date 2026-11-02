@@ -22,7 +22,7 @@ interface ProductReviewsProps {
   archetype?: 'b2b_service' | 'b2c_retail';
 }
 
-const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
+const getRetailReviews = (itemTitle: string, brandName: string): ReviewItem[] => [
   {
     id: 'rev-1',
     author: 'Sipho M.',
@@ -32,9 +32,9 @@ const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
     verified: true,
     sizePurchased: 'UK 9',
     fitFeedback: 'True to Size',
-    title: 'Timeless aesthetic and all-day comfort',
+    title: `Exceptional quality and premium feel`,
     comment:
-      'The finish and soft lining feel exceptionally premium. Worn daily across Sandton and Rosebank; they break in quickly and match both casual and smart outfits effortlessly.',
+      `The build quality and attention to detail on this ${itemTitle.toLowerCase()} feel exceptionally premium. Arrived in immaculate condition and exceeds expectations for our daily use.`,
     helpfulCount: 18,
   },
   {
@@ -44,11 +44,11 @@ const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
     rating: 5,
     date: '28 April 2024',
     verified: true,
-    sizePurchased: 'UK 6',
-    fitFeedback: 'True to Size',
-    title: 'Perfect South African sizing match',
+    sizePurchased: 'Standard',
+    fitFeedback: 'As Described',
+    title: 'Perfect match for our requirements',
     comment:
-      'Always hesitant ordering online, but South African sizing matches UK 1:1. The UK 6 fit like a glove. Arrived in Cape Town in 48 hours in immaculate condition.',
+      `Always hesitant ordering online, but ${brandName}'s verified specification matches exactly. Arrived in Cape Town in 48 hours and integrates perfectly into our workflow.`,
     helpfulCount: 12,
   },
   {
@@ -58,11 +58,11 @@ const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
     rating: 4,
     date: '03 March 2024',
     verified: true,
-    sizePurchased: 'UK 10',
-    fitFeedback: 'True to Size',
-    title: 'Durable construction and iconic vintage profile',
+    sizePurchased: 'Standard',
+    fitFeedback: 'High Quality',
+    title: 'Durable construction and great profile',
     comment:
-      'Subtle off-white midsole gives that authentic archive feel. Solid arch support for walking long distances. Very satisfied with the craftsmanship and quick dispatch.',
+      `Very satisfied with the craftsmanship and quick dispatch. This ${itemTitle.toLowerCase()} provides solid performance and looks great in person. High-tier service from ${brandName}.`,
     helpfulCount: 7,
   },
   {
@@ -72,11 +72,11 @@ const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
     rating: 5,
     date: '19 June 2024',
     verified: true,
-    sizePurchased: 'UK 10',
-    fitFeedback: 'True to Size',
-    title: 'The gold standard for durability and comfort',
+    sizePurchased: 'Standard',
+    fitFeedback: 'Recommended',
+    title: 'The gold standard for this category',
     comment:
-      'The construction provides incredible stability. The "What Goes Well With" bundle option saved me 15% on the paired overshirt. Worth every Rand.',
+      `The engineering provides incredible stability. The "What Goes Well With" bundle option saved me 15% on the paired accessories. Worth every Rand for the quality provided.`,
     helpfulCount: 24,
   },
   {
@@ -86,16 +86,16 @@ const DEFAULT_RETAIL_REVIEWS: ReviewItem[] = [
     rating: 5,
     date: '02 June 2024',
     verified: true,
-    sizePurchased: 'UK 5',
-    fitFeedback: 'True to Size',
-    title: 'Breathable and lightweight',
+    sizePurchased: 'Standard',
+    fitFeedback: 'True to Spec',
+    title: 'Reliable and well-engineered',
     comment:
-      'The units left urgency indicator helped me secure my size before it ran out of stock. Fast delivery and high-end packaging.',
+      `The real-time inventory indicator helped me secure this ${itemTitle.toLowerCase()} before it ran out of stock. Fast delivery and high-end packaging from ${brandName}.`,
     helpfulCount: 15,
   }
 ];
 
-const DEFAULT_B2B_REVIEWS: ReviewItem[] = [
+const getB2BReviews = (brandName: string): ReviewItem[] => [
   {
     id: 'rev-b2b-1',
     author: 'Gareth V. · Head of Digital Commerce',
@@ -105,9 +105,9 @@ const DEFAULT_B2B_REVIEWS: ReviewItem[] = [
     verified: true,
     sizePurchased: 'Headless Storefront & Core Web Vitals Architecture',
     fitFeedback: '+34% Mobile CRO Lift',
-    title: 'Engineered a +34% lift in mobile conversion rate with zero checkout downtime',
+    title: 'Engineered a massive lift in mobile conversion with zero downtime',
     comment:
-      'eComplete completely overhauled our storefront and checkout pathways. Their technical squads solved severe Core Web Vitals lag and re-architected our cart drawer. Our mobile conversion rate lifted by 34% within 60 days.',
+      `${brandName} completely overhauled our storefront and checkout pathways. Their technical squads solved severe Core Web Vitals lag and re-architected our cart drawer. Our mobile conversion rate lifted significantly within 60 days.`,
     helpfulCount: 28,
   },
   {
@@ -119,9 +119,9 @@ const DEFAULT_B2B_REVIEWS: ReviewItem[] = [
     verified: true,
     sizePurchased: 'Conversion Diagnostic & UX Remediation Sprint',
     fitFeedback: '100% SLA Delivery',
-    title: 'Engineering depth and commercial CRO rigor that paid for itself in 3 weeks',
+    title: 'Engineering depth and commercial CRO rigor that paid for itself in weeks',
     comment:
-      'The conversion diagnostic was eye-opening. Rather than presenting generic slides, eComplete delivered drop-in Next.js code fixes that eliminated drop-off in our multi-currency checkout. The commercial ROI paid for the sprint within 3 weeks.',
+      `The conversion diagnostic was eye-opening. Rather than presenting generic slides, ${brandName} delivered drop-in Next.js code fixes that eliminated drop-off in our multi-currency checkout. The commercial ROI paid for the sprint immediately.`,
     helpfulCount: 22,
   },
   {
@@ -131,11 +131,11 @@ const DEFAULT_B2B_REVIEWS: ReviewItem[] = [
     rating: 5,
     date: '27 February 2024',
     verified: true,
-    sizePurchased: 'Shopify Plus & Payment Gateway Middleware',
+    sizePurchased: 'Enterprise Catalog & Discovery Middleware',
     fitFeedback: 'Enterprise Security Compliant',
-    title: 'Outstanding technical execution across Shopify Plus and South African gateways',
+    title: 'Outstanding technical execution across modern web stacks',
     comment:
-      'Superb integration across our ERP, Algolia search index, and South African payment gateways (Ozow, PayFlex, Peach Payments). Their engineering team demonstrates true enterprise discipline and security awareness.',
+      `Superb integration across our ERP, search index, and South African payment gateways. The ${brandName} engineering team demonstrates true enterprise discipline and security awareness throughout the project life-cycle.`,
     helpfulCount: 17,
   },
   {
@@ -149,7 +149,7 @@ const DEFAULT_B2B_REVIEWS: ReviewItem[] = [
     fitFeedback: '+22% AOV Growth',
     title: 'Streamlined our B2B buyer ordering and self-service account flow',
     comment:
-      'eComplete modernized our B2B ordering catalog and self-service client portal. Onboarding friction dropped immediately and average order value grew by 22% with automated POPIA compliance.',
+      `${brandName} modernized our B2B ordering catalog and self-service client portal. Onboarding friction dropped immediately and average order value grew with automated compliance.`,
     helpfulCount: 31,
   }
 ];
@@ -161,7 +161,9 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
   archetype = 'b2c_retail'
 }) => {
   const isB2B = archetype === 'b2b_service';
-  const initialReviews = isB2B ? DEFAULT_B2B_REVIEWS : DEFAULT_RETAIL_REVIEWS;
+  const initialReviews = React.useMemo(() => 
+    isB2B ? getB2BReviews(brandName) : getRetailReviews(itemTitle, brandName)
+  , [isB2B, brandName, itemTitle]);
 
   const [reviews, setReviews] = useState<ReviewItem[]>(initialReviews);
   const [filterRating, setFilterRating] = useState<number | 'all'>('all');

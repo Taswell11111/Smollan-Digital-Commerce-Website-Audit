@@ -74,6 +74,7 @@ export interface AuditRecord {
   businessCategory: string;
   targetMarket: string;
   primaryObjective: string;
+  primaryKeyword?: string;
   depth: 'quick' | 'standard' | 'deep';
   schemaVersion?: number;
   rulesetVersion?: string;
@@ -202,6 +203,7 @@ export interface UrlInspectionResult {
   platform: string;
   internalLinksCount?: number;
   availablePagesCount?: number;
+  pagesDiscoveredCount?: number;
   sampleDiscoveredUrls?: string[];
   sitemapUrlCount?: number;
   hasSitemap?: boolean;

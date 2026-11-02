@@ -45,6 +45,7 @@ interface OverviewDashboardProps {
     businessCategory: string;
     targetMarket: string;
     primaryObjective: string;
+    primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
   }) => void;
   isLoading?: boolean;
@@ -82,6 +83,37 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   // Proactive Inline Verification State (displays screenshot & domain preview immediately upon URL entry)
   const [inlineInspection, setInlineInspection] = useState<UrlInspectionResult | null>(null);
   const [isInspectingInline, setIsInspectingInline] = useState<boolean>(false);
+
+  // Executive Synopsis State
+  const [synopsis, setSynopsis] = useState<string | null>(null);
+  const [isSynopsisLoading, setIsSynopsisLoading] = useState<boolean>(false);
+
+  const fetchSynopsis = async (audit: AuditRecord) => {
+    if (!audit) return;
+    setIsSynopsisLoading(true);
+    try {
+      const res = await fetch('/api/executive-synopsis', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ audit })
+      });
+      const data = await res.json();
+      if (data.synopsis) {
+        setSynopsis(data.synopsis);
+      }
+    } catch (err) {
+      console.error('Failed to fetch synopsis:', err);
+    } finally {
+      setIsSynopsisLoading(false);
+    }
+  };
+
+  React.useEffect(() => {
+    if (activeAudit) {
+      setSynopsis(null);
+      fetchSynopsis(activeAudit);
+    }
+  }, [activeAudit?.id]);
 
   const handleInspectUrl = async (targetUrl: string) => {
     if (!targetUrl || !targetUrl.includes('.')) return;
@@ -138,6 +170,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
       businessCategory: 'Retail / Ecommerce',
       targetMarket: 'South Africa',
       primaryObjective: 'sales',
+      primaryKeyword: '',
       depth: scrapeDepth
     });
   };
@@ -473,7 +506,34 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 </div>
               )}
             </div>
+
+            {/* SECTION: EXECUTIVE SYNOPSIS (GEMINI) - MOVED HERE */}
+            {(synopsis || isSynopsisLoading) && (
+              <div className="mt-8 pt-8 border-t border-cyan-500/20 space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="w-5 h-5 text-[#00e5ff]" />
+                  <h3 className="text-lg font-black text-white">Executive Strategic Synopsis</h3>
+                </div>
+                
+                {isSynopsisLoading ? (
+                  <div className="space-y-3 animate-pulse">
+                    <div className="h-4 bg-slate-700/50 rounded w-full" />
+                    <div className="h-4 bg-slate-700/50 rounded w-5/6" />
+                    <div className="h-4 bg-slate-700/50 rounded w-4/6 pt-4" />
+                    <div className="h-4 bg-slate-700/50 rounded w-full" />
+                  </div>
+                ) : (
+                  <div className="text-sm text-slate-300 leading-relaxed space-y-4">
+                    {synopsis?.split('\n').filter(p => p.trim()).map((para, i) => (
+                      <p key={i}>{para}</p>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
+
+
 
           {/* Technical Crawl Hygiene & Health Matrix */}
           {activeAudit && (
@@ -533,7 +593,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
             {/* Filter Pills */}
             <div className="flex flex-wrap items-center gap-1.5 text-xs">
-              {['all', 'homepage', 'product', 'category', 'cart', 'checkout', 'delivery'].map((type) => (
+              {['all', 'homepage', 'product', 'category', 'cart', 'checkout', 'delivery', 'content'].map((type) => (
                 <button
                   key={type}
                   onClick={() => setPageTypeFilter(type)}
@@ -785,6 +845,24 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                             className="h-full rounded-full bg-emerald-500"
                             style={{ width: `${enhancedVal}%` }}
                           ></div>
+                        </div>
+                      </div>
+
+                      {/* Diagnostic Evidence (The "Why") */}
+                      <div className="space-y-3 pt-1">
+                        <span className="text-[10px] font-black uppercase text-slate-500 block tracking-widest">Diagnostic Evidence & Rationale</span>
+                        <div className="bg-white p-3 rounded-xl border border-slate-200 space-y-2.5">
+                          {(catData.checks || []).slice(0, 4).map((check: any, cidx: number) => (
+                            <div key={cidx} className="flex items-start gap-2.5 text-[11px] leading-snug">
+                              <div className={`mt-1 w-2 h-2 rounded-full shrink-0 shadow-sm ${
+                                check.status === 'pass' ? 'bg-emerald-500' : check.status === 'partial' ? 'bg-amber-500' : 'bg-red-500'
+                              }`} />
+                              <div className="text-slate-700">
+                                <span className="font-bold text-slate-900 uppercase text-[9px] block mb-0.5 tracking-tight">{check.name}</span>
+                                <p className="text-slate-600 italic">"{check.evidence || 'No specific evidence detected for this parameter.'}"</p>
+                              </div>
+                            </div>
+                          ))}
                         </div>
                       </div>
 

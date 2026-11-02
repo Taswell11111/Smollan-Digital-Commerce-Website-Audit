@@ -324,19 +324,31 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       const h1s = $('h1').map((_, el) => $(el).text().trim()).get();
       const h2s = $('h2').map((_, el) => $(el).text().trim()).get();
 
-      // Classify page type
+      // Classify page type (improved robustness)
       let pageType = 'content';
       const pathLower = new URL(currentUrl).pathname.toLowerCase();
-      if (pathLower === '/' || pathLower === '') pageType = 'homepage';
-      else if (pathLower.includes('/product') || pathLower.includes('/item') || pathLower.includes('/p/')) pageType = 'product';
-      else if (pathLower.includes('/collection') || pathLower.includes('/category') || pathLower.includes('/shop') || pathLower.includes('/search')) pageType = 'category';
-      else if (pathLower.includes('/cart')) pageType = 'cart';
-      else if (pathLower.includes('/checkout')) pageType = 'checkout';
-      else if (pathLower.includes('/delivery') || pathLower.includes('/shipping') || pathLower.includes('/returns')) pageType = 'delivery';
-      else if (pathLower.includes('/contact') || pathLower.includes('/help') || pathLower.includes('/faq')) pageType = 'help';
+      const bodyText = $clean('body').text().toLowerCase();
+      const htmlLower = html.toLowerCase();
+
+      if (pathLower === '/' || pathLower === '') {
+        pageType = 'homepage';
+      } else if (pathLower.includes('/product') || pathLower.includes('/item') || pathLower.includes('/p/') || pathLower.includes('/sku-') || $('.product-single, .product-main, .pdp, [itemtype*="Product"], .product-view, .product-detail').length > 0) {
+        pageType = 'product';
+      } else if (pathLower.includes('/collection') || pathLower.includes('/category') || pathLower.includes('/shop') || pathLower.includes('/search') || pathLower.includes('/c/') || $('.collection, .category-products, .product-list, .plp, .category-view').length > 0) {
+        pageType = 'category';
+      } else if (pathLower.includes('/cart') || pathLower.includes('/basket') || pathLower.includes('/bag') || $('.cart-container, #cart, .mini-cart, .shopping-cart, .bag-container').length > 0 || bodyText.includes('shopping bag') || bodyText.includes('your cart') || bodyText.includes('view cart')) {
+        pageType = 'cart';
+      } else if (pathLower.includes('/checkout') || pathLower.includes('/pay') || pathLower.includes('/order') || $('[id*="checkout"], [class*="checkout"], .checkout-container').length > 0 || bodyText.includes('shipping address') || bodyText.includes('payment method') || bodyText.includes('secure checkout')) {
+        pageType = 'checkout';
+      } else if (pathLower.includes('/delivery') || pathLower.includes('/shipping') || pathLower.includes('/returns') || pathLower.includes('/courier') || bodyText.includes('delivery information') || bodyText.includes('shipping policy') || bodyText.includes('track order')) {
+        pageType = 'delivery';
+      } else if (pathLower.includes('/contact') || pathLower.includes('/help') || pathLower.includes('/faq') || pathLower.includes('/support')) {
+        pageType = 'help';
+      }
 
       // Elements inspection
       const linksCount = $('a').length;
+
       // Navigation: count links inside <nav> or <header> elements, not all <a> tags
       const navLinksCount = $('nav a, header a').length;
 
@@ -749,6 +761,7 @@ app.post('/api/inspect-url', inspectLimiter, async (req: Request, res: Response)
       platform,
       internalLinksCount,
       availablePagesCount,
+      pagesDiscoveredCount: availablePagesCount,
       sampleDiscoveredUrls,
       sitemapUrlCount,
       hasSitemap,
@@ -758,6 +771,36 @@ app.post('/api/inspect-url', inspectLimiter, async (req: Request, res: Response)
   } catch (err: any) {
     console.error('Inspect URL error:', err);
     res.status(500).json({ success: false, error: err.message || 'Failed to inspect URL' });
+  }
+});
+
+// Endpoint to preview available pages for scraping before running full audit
+app.post('/api/discover-pages', inspectLimiter, async (req: Request, res: Response) => {
+  try {
+    const { url, depth } = req.body;
+    if (!url) {
+      return res.status(400).json({ success: false, error: 'Target URL is required.' });
+    }
+    const validation = await validateTargetUrl(url);
+    if (!validation.valid) {
+      return res.status(400).json({ success: false, error: validation.error });
+    }
+    const targetUrl = validation.normalizedUrl!;
+    const crawlResult = await crawlWebsite(targetUrl, depth || 'standard', undefined, 50);
+    res.json({
+      success: true,
+      discoveredCount: crawlResult.pagesDiscoveredCount,
+      inspectedCount: crawlResult.pagesInspected.length,
+      pages: crawlResult.pagesInspected.map(p => ({
+        url: p.url,
+        title: p.title,
+        pageType: p.pageType,
+        status: p.status
+      })),
+      failedPages: crawlResult.failedPages
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message || 'Failed to discover pages.' });
   }
 });
 
@@ -1270,13 +1313,14 @@ async function runAudit(auditId: string, params: any) {
     };
 
     const auditRecord = {
-      id: `AUD-${Date.now()}`,
+      id: `AUD-${crypto.randomUUID()}`,
       timestamp: new Date().toISOString(),
       url: targetUrl,
       businessName: businessName || new URL(targetUrl).hostname,
       businessCategory: businessCategory || 'Ecommerce / Retail',
       targetMarket: targetMarket || 'South Africa',
       primaryObjective: primaryObjective || 'sales',
+      primaryKeyword: params.primaryKeyword,
       depth: auditDepth,
       schemaVersion: SCHEMA_VERSION,
       rulesetVersion: scoring.rulesetVersion,
@@ -1326,7 +1370,7 @@ async function runAudit(auditId: string, params: any) {
     let leadRecord: any = null;
     if (!isComparison) {
       leadRecord = {
-        id: `LEAD-${Date.now()}`,
+        id: `LEAD-${crypto.randomUUID()}`,
         auditId: auditRecord.id,
         businessName: auditRecord.businessName,
         domain: targetUrl,
@@ -1375,13 +1419,14 @@ async function runAudit(auditId: string, params: any) {
       source: 'measured' as const
     }];
     const emergencyAudit = {
-      id: `AUD-${Date.now()}`,
+      id: `AUD-${crypto.randomUUID()}`,
       timestamp: new Date().toISOString(),
       url: params.url,
       businessName: params.businessName || 'Storefront Prospect',
       businessCategory: params.businessCategory || 'Ecommerce',
       targetMarket: params.targetMarket || 'South Africa',
       primaryObjective: params.primaryObjective || 'sales',
+      primaryKeyword: params.primaryKeyword,
       depth: params.depth || 'standard',
       schemaVersion: SCHEMA_VERSION,
       rulesetVersion: scoring.rulesetVersion,
@@ -1419,7 +1464,7 @@ async function runAudit(auditId: string, params: any) {
       }
     };
     const emergencyLead = {
-      id: `LEAD-${Date.now()}`,
+      id: `LEAD-${crypto.randomUUID()}`,
       auditId: emergencyAudit.id,
       businessName: emergencyAudit.businessName,
       domain: params.url,
@@ -1444,7 +1489,7 @@ async function runAudit(auditId: string, params: any) {
 }
 
 app.post('/api/audit', auditLimiter, async (req: Request, res: Response) => {
-  const auditId = `AUD-${Date.now()}`;
+  const auditId = `AUD-${crypto.randomUUID()}`;
   auditStatusMap.set(auditId, { status: 'running', logs: ['[SYSTEM] Audit queued.'] });
   
   runAudit(auditId, req.body).catch(console.error);
@@ -1600,6 +1645,42 @@ Return JSON matching:
   } catch (err: any) {
     console.error('Pitch generation error:', err);
     res.status(500).json({ error: err.message || 'Failed to generate pitch' });
+  }
+});
+
+app.post('/api/executive-synopsis', async (req: Request, res: Response) => {
+  if (!ai) {
+    return res.status(500).json({ error: 'AI service not configured.' });
+  }
+  const { audit } = req.body;
+  if (!audit) {
+    return res.status(400).json({ error: 'Audit data is required for synopsis.' });
+  }
+
+  const prompt = `Provide a professional, enterprise-grade executive 2-paragraph synopsis for a digital commerce audit conducted for ${audit.businessName} (${audit.url}).
+  
+  Audit Context:
+  - Overall Performance Score: ${audit.overallScore}/100
+  - Projected Score after Smollan intervention: ${audit.projectedOverallScore}/100
+  - Specific Findings Summary: ${JSON.stringify((audit.findings || []).slice(0, 5).map((f: any) => f.title))}
+  - Target Market: ${audit.targetMarket || 'South Africa'}
+  - Business Category: ${audit.businessCategory || 'Retail'}
+
+  Instructions:
+  1. The synopsis must be exactly two paragraphs.
+  2. The first paragraph should forensicly summarize the current state, identifying specific friction points in the user journey (e.g. mobile responsiveness, checkout friction, SEO gaps).
+  3. The second paragraph should persuasively outline the commercial opportunity and the 'Smollan Advantage', explaining how our proprietary 12-factor remediation and agentic AI readiness will recover lost revenue and future-proof the storefront.
+  4. Use a tone of authority, professionalism, and commercial intelligence. Do not use markdown bolding or bullets.`;
+
+  try {
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.8-flash',
+      contents: prompt,
+    });
+    res.json({ synopsis: response.text });
+  } catch (err: any) {
+    console.error('Synopsis generation error:', err);
+    res.status(500).json({ error: 'Failed to generate synopsis.' });
   }
 });
 

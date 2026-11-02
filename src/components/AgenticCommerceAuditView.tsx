@@ -21,7 +21,8 @@ import {
   ExternalLink,
   ChevronDown,
   ChevronUp,
-  RefreshCw
+  RefreshCw,
+  DollarSign
 } from 'lucide-react';
 import { AuditRecord, AgenticCommerceAudit } from '../types';
 
@@ -662,6 +663,28 @@ export const AgenticCommerceAuditView: React.FC<AgenticCommerceAuditViewProps> =
               </div>
             </div>
           </div>
+
+          {/* Audit Execution Metadata & Cost Transparency */}
+          {audit.executionCost && (
+            <div className="flex flex-col sm:flex-row items-center justify-between gap-4 px-6 py-4 bg-slate-950/40 border-t border-cyan-500/20 rounded-b-2xl">
+              <div className="flex items-center gap-3">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-[9px] font-black uppercase text-slate-500 tracking-[0.2em]">Estimated Execution Cost</div>
+                  <div className="text-xs font-black text-white uppercase tracking-widest">
+                    R {audit.executionCost.totalEstimatedCostZar.toFixed(4)} <span className="text-slate-500 ml-1">($ {audit.executionCost.totalEstimatedCostUsd.toFixed(5)})</span>
+                  </div>
+                </div>
+              </div>
+              <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-4">
+                <span>Duration: {audit.executionCost.executionTimeMs}ms</span>
+                <span>·</span>
+                <span>Bandwidth: {(audit.executionCost.crawlerBandwidthBytes / 1024).toFixed(1)} KB</span>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

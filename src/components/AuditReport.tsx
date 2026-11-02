@@ -1179,6 +1179,11 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
                   <div><strong>Overall Score:</strong> {audit.overallScore}/100 → Potential Target: {projectedScore}/100 (+{uplift} pts potential recovery)</div>
                   <div><strong>Verdict:</strong> {audit.executiveVerdict?.headline}</div>
                   <div><strong>Action Plan:</strong> {audit.summaryCounts.essential} Essential fixes · {audit.summaryCounts.recommended} Recommended · {audit.summaryCounts.content} Content updates</div>
+                  {audit.executionCost && (
+                    <div className="pt-1 border-t border-slate-100 mt-1">
+                      <strong>Audit Execution Cost:</strong> R {audit.executionCost.totalEstimatedCostZar.toFixed(4)} ($ {audit.executionCost.totalEstimatedCostUsd.toFixed(5)})
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -53,6 +53,7 @@ export default function App() {
     businessCategory: string;
     targetMarket: string;
     primaryObjective: string;
+    primaryKeyword?: string;
     depth: 'quick' | 'standard' | 'deep';
   } | null>(null);
 
@@ -78,13 +79,13 @@ export default function App() {
     }).finally(() => setIsLoading(false));
   }, []);
 
-  // Step 1: Pre-audit verification (fetches live title, platform, and homepage screenshot)
   const handleInitiateAuditVerification = async (params: {
     url: string;
     businessName: string;
     businessCategory: string;
     targetMarket: string;
     primaryObjective: string;
+    primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
   }) => {
     setPendingAuditParams(params);
@@ -280,13 +281,13 @@ export default function App() {
     return { audit, lead };
   }
 
-  // Direct start from landing page without intermediate modal or 2nd landing page
   const handleDirectStartAudit = async (params: {
     url: string;
     businessName: string;
     businessCategory: string;
     targetMarket: string;
     primaryObjective: string;
+    primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
     allowCartJourney: boolean;
     cartJourneyConfirmed: boolean;
@@ -554,6 +555,7 @@ export default function App() {
         isLoading={isInspectingUrl}
         onConfirm={handleConfirmAudit}
         onReverify={handleReverifyUrl}
+        onUpdateInspection={(newData) => setInspectionResult(prev => prev ? { ...prev, ...newData } : null)}
         currentDepth={pendingAuditParams?.depth || 'standard'}
       />
     </div>

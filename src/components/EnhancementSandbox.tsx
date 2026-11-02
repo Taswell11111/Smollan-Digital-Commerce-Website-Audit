@@ -54,48 +54,77 @@ interface EnhancementSandboxProps {
 export type SiteArchetype = 'b2b_service' | 'b2c_retail';
 
 export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentAudit }) => {
-  // Detect website archetype dynamically
+  // Detect website archetype dynamically based on Business Model & Industry
   const detectArchetype = (audit?: AuditRecord | null): SiteArchetype => {
     if (!audit) return 'b2b_service';
-    const url = (audit.url || '').toLowerCase();
-    const name = (audit.businessName || '').toLowerCase();
-    const cat = (audit.businessCategory || '').toLowerCase();
     
+    const cat = (audit.businessCategory || '').toLowerCase();
+    const name = (audit.businessName || '').toLowerCase();
+    const url = (audit.url || '').toLowerCase();
+    
+    // 1. Explicit Category Mapping (Highest Priority)
     if (
-      url.includes('ecomplete') ||
-      url.includes('agency') ||
-      url.includes('consulting') ||
-      url.includes('smollan') ||
-      url.includes('service') ||
-      cat.includes('service') ||
-      cat.includes('agency') ||
+      cat.includes('professional services') ||
       cat.includes('consulting') ||
+      cat.includes('agency') ||
       cat.includes('b2b') ||
-      cat.includes('software') ||
-      name.includes('ecomplete') ||
-      name.includes('agency') ||
-      name.includes('consulting') ||
-      name.includes('solutions')
+      cat.includes('saas') ||
+      cat.includes('industrial') ||
+      cat.includes('enterprise') ||
+      cat.includes('logistics') ||
+      cat.includes('corporate')
     ) {
       return 'b2b_service';
     }
 
+    if (
+      cat.includes('retail') ||
+      cat.includes('fashion') ||
+      cat.includes('fmcg') ||
+      cat.includes('grocery') ||
+      cat.includes('sporting') ||
+      cat.includes('electronics') ||
+      cat.includes('furniture') ||
+      cat.includes('beauty') ||
+      cat.includes('department store') ||
+      cat.includes('e-commerce') ||
+      cat.includes('consumer')
+    ) {
+      return 'b2c_retail';
+    }
+
+    // 2. Heuristic Fallbacks (URL/Name keywords)
+    if (
+      url.includes('agency') ||
+      url.includes('consulting') ||
+      url.includes('solutions') ||
+      url.includes('services') ||
+      name.includes('agency') ||
+      name.includes('consulting') ||
+      name.includes('solutions') ||
+      name.includes('group') ||
+      name.includes('holdings')
+    ) {
+      return 'b2b_service';
+    }
+
+    // 3. Page Type Discovery Fallback
     const pages = audit.pagesInspected || [];
     if (pages.length > 0) {
-      const hasCartOrProduct = pages.some(
+      const hasCommerceSignifiers = pages.some(
         p => p.pageType === 'product' || p.pageType === 'cart' || p.pageType === 'checkout' || p.hasPrice
       );
-      if (!hasCartOrProduct) {
-        return 'b2b_service';
+      if (hasCommerceSignifiers) {
+        return 'b2c_retail';
       }
     }
 
-    return 'b2c_retail';
+    return 'b2b_service'; // Default to B2B for unknown
   };
 
   const [siteArchetype, setSiteArchetype] = useState<SiteArchetype>(() => detectArchetype(currentAudit));
   const [activeTab, setActiveTab] = useState<'homepage' | 'pdp' | 'plp' | 'cart'>('pdp');
-  const [activeMode, setActiveMode] = useState<'current' | 'enhanced' | 'split'>('enhanced');
+  const [activeMode, setActiveMode] = useState<'current' | 'enhanced' | 'split'>('current');
   
   // B2C Retail State
   const [selectedSize, setSelectedSize] = useState<string>('UK 8');
@@ -140,6 +169,27 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
   const brandName = currentAudit?.businessName || (siteArchetype === 'b2b_service' ? 'eComplete Commerce' : 'Heritage Storefront');
   const brandUrl = currentAudit?.url || 'https://www.ecompletecommerce.com';
   const categoryResults = currentAudit?.categoryResults || {};
+  const catName = currentAudit?.businessCategory || (siteArchetype === 'b2b_service' ? 'Professional Services' : 'Retail');
+  
+  // Practical Keyword: Prioritize user keyword, then sanitized category, then generic
+  const practicalKeyword = currentAudit?.primaryKeyword || 
+    catName.replace(/[^a-zA-Z0-9 ]/g, '').split(' ').filter(s => s.length > 3)[0] || 
+    'Solution';
+
+  // Identify a real product page from the audit for B2C context
+  const realProductPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'product') || currentAudit?.pagesInspected?.[0];
+  const productTitle = realProductPage?.title || `${brandName} Signature ${practicalKeyword}`;
+  const productUrl = realProductPage?.url || brandUrl;
+  const productScreenshot = realProductPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(productUrl)}?w=1200`;
+  const productFallbackScreenshot = realProductPage?.fallbackScreenshotUrl || `https://image.thum.io/get/width/1200/crop/800/${encodeURIComponent(productUrl)}`;
+  
+  // Identify category and cart pages
+  const realCategoryPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'category');
+  const realCartPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'cart' || p.pageType === 'checkout');
+  const categoryScreenshot = realCategoryPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(realCategoryPage?.url || brandUrl)}?w=1200`;
+  const cartScreenshot = realCartPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(realCartPage?.url || brandUrl)}?w=1200`;
+  const categoryFallbackScreenshot = realCategoryPage?.fallbackScreenshotUrl || `https://image.thum.io/get/width/1200/crop/800/${encodeURIComponent(realCategoryPage?.url || brandUrl)}`;
+  const cartFallbackScreenshot = realCartPage?.fallbackScreenshotUrl || `https://image.thum.io/get/width/1200/crop/800/${encodeURIComponent(realCartPage?.url || brandUrl)}`;
   
   // Safe scores from real audit results
   const pdpScore = categoryResults['Product detail pages']?.score ?? 50;
@@ -468,11 +518,16 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
             <TrendingUp className="w-4 h-4 text-cyan-600" />
             <span>Deterministic Score Uplift ({isB2B ? 'B2B Inbound & Services' : 'B2C Commerce & CRO'})</span>
           </span>
-          <span className="text-[11px] text-slate-500 font-medium">
-            {isB2B
-              ? 'Projections grounded in Smollan enterprise architecture, lead discovery engines & SLA delivery'
-              : 'Projections grounded in Smollan commercial remedies, stock scarcity alerts & cross-sell engines'}
-          </span>
+          <div className="flex flex-wrap items-center gap-4 text-[10px] font-bold">
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-1.5 bg-slate-400 rounded-full" />
+              <span className="text-slate-500">Baseline Performance</span>
+            </div>
+            <div className="flex items-center gap-1.5">
+              <div className="w-3 h-1.5 bg-[#00e5ff] rounded-full shadow-[0_0_8px_rgba(0,229,255,0.6)]" />
+              <span className="text-cyan-600">Smollan Target Performance</span>
+            </div>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -1130,457 +1185,187 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                 <div id="customer-reviews-section">
                   <ProductReviews
                     brandName={brandName}
-                    category="Enterprise eCommerce Services"
-                    itemTitle="Strategic Growth &amp; Architecture Sprint"
+                    category={catName}
+                    itemTitle={`${practicalKeyword} Growth & Architecture Sprint`}
                     archetype="b2b_service"
                   />
                 </div>
               </div>
             ) : (
               /* =========================================================================
-                 B2C RETAIL STOREFRONT PDP VIEW (For online retail stores)
+                 B2C RETAIL PRODUCT DETAIL PAGE (PDP) - SCREENSHOT BASED
                  ========================================================================= */
-              <div className="space-y-10">
-                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 border-b border-slate-100 pb-5">
-                  <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-[#002157] text-[#00e5ff] flex items-center justify-center font-black text-base tracking-tight shadow">
-                      {brandInitials}
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase tracking-widest text-slate-400 font-extrabold block">
-                        Smollan Enhanced Product Experience
-                      </span>
-                      <h3 className="text-xl font-black text-slate-900">
-                        {brandName} Signature Heritage Piece
-                      </h3>
-                    </div>
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+                  <div>
+                    <span className="text-[10px] uppercase font-black text-cyan-800 tracking-wider">
+                      Product Detail Page (PDP) Hygiene
+                    </span>
+                    <h3 className="text-base font-black text-slate-900">
+                      {productTitle} · Smollan Engagement Suite
+                    </h3>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Visualising conversion-rate recovery overlays on the real product journey.
+                    </p>
                   </div>
-                  
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-3">
                     <button
                       onClick={handleDownloadPP}
-                      className="bg-[#002157] hover:bg-[#091b42] text-white border border-[#00e5ff]/40 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow"
-                      title="Download Official Technical Product Profile (PP) Spec Sheet"
+                      className="bg-[#002157] text-[#00e5ff] px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow"
                     >
-                      <FileDown className="w-4 h-4 text-[#00e5ff]" />
-                      <span>Download PP (Spec Sheet)</span>
+                      <FileDown className="w-3.5 h-3.5" />
+                      <span>Download Product Profile (PP)</span>
                     </button>
+                    <a
+                      href={productUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="bg-white border border-slate-200 text-slate-700 px-4 py-2 rounded-xl text-xs font-bold transition flex items-center gap-2 shadow-sm"
+                    >
+                      <span>View Live Page</span>
+                      <ExternalLink className="w-3.5 h-3.5" />
+                    </a>
                   </div>
                 </div>
 
-                {/* MAIN PDP GRID */}
-                <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
-                  {/* Left Column: Product Visuals & Specifications (5 cols) */}
-                  <div className="lg:col-span-5 space-y-5">
-                    <div className="aspect-square bg-gradient-to-br from-slate-100 via-slate-50 to-slate-200 rounded-3xl overflow-hidden border border-slate-200 relative flex items-center justify-center p-8 shadow-inner group">
-                      <div className="text-center space-y-3">
-                        <div className="w-36 h-36 mx-auto rounded-3xl bg-gradient-to-tr from-[#002157] to-[#0f2866] text-[#00e5ff] border border-cyan-400/40 flex flex-col items-center justify-center shadow-xl">
-                          <span className="font-mono text-2xl font-black">{brandInitials}</span>
-                          <span className="text-[10px] font-bold text-cyan-200 mt-1 uppercase tracking-wider">SKU #2026</span>
-                        </div>
-                        <span className="text-xs font-bold text-slate-600 block">
-                          {brandName} High-Intent Visual Showcase
-                        </span>
+                <div className="border border-slate-300 rounded-3xl overflow-hidden shadow-2xl bg-slate-900 relative">
+                  <div className="bg-slate-800 px-4 py-2.5 flex items-center justify-between border-b border-slate-700">
+                    <div className="flex items-center gap-2">
+                      <div className="flex gap-1.5">
+                        <span className="w-3 h-3 rounded-full bg-red-500/80" />
+                        <span className="w-3 h-3 rounded-full bg-amber-500/80" />
+                        <span className="w-3 h-3 rounded-full bg-emerald-500/80" />
                       </div>
-
-                      {/* Scarcity Badge (Units Left) Overlay */}
-                      {activeMode === 'enhanced' && (
-                        <div className="absolute top-4 left-4 flex flex-col gap-1.5">
-                          <span className="bg-amber-500 text-slate-950 text-[10px] font-black px-2.5 py-1 rounded-lg uppercase tracking-wider shadow flex items-center gap-1">
-                            <Flame className="w-3.5 h-3.5 fill-current" />
-                            <span>Only {unitsLeft} Units Left!</span>
-                          </span>
-                        </div>
-                      )}
-
-                      {/* Download PP Trigger Badge */}
-                      <div className="absolute bottom-4 right-4">
-                        <button
-                          onClick={handleDownloadPP}
-                          className="bg-white/90 hover:bg-white text-slate-900 text-[11px] font-bold px-3 py-1.5 rounded-xl shadow-md border border-slate-200 transition flex items-center gap-1.5 backdrop-blur-sm"
-                        >
-                          <Download className="w-3.5 h-3.5 text-cyan-700" />
-                          <span>Download PP</span>
-                        </button>
-                      </div>
+                      <span className="text-xs font-bold text-slate-300 ml-2 truncate max-w-sm">
+                        {productTitle}
+                      </span>
                     </div>
-
-                    {/* Technical Product Profile (PP) Snapshot Card */}
-                    <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-2.5 text-xs">
-                      <div className="flex justify-between items-center font-bold text-slate-800">
-                        <span className="flex items-center gap-1.5">
-                          <FileText className="w-4 h-4 text-cyan-600" />
-                          <span>Product Profile (PP) Highlights</span>
-                        </span>
-                        <button onClick={handleDownloadPP} className="text-cyan-700 hover:underline font-bold text-[11px]">
-                          Full Spec (PDF)
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-[11px] text-slate-600 pt-1">
-                        <div>Fabric: <strong>100% Cotton Selvedge (14.5oz)</strong></div>
-                        <div>Origin: <strong>Ethically Milled &amp; Sourced</strong></div>
-                        <div>Fit Index: <strong>Regular Tapered Cut</strong></div>
-                        <div>Care: <strong>Cold Wash · Air Dry</strong></div>
-                      </div>
+                    <div className="bg-slate-900 px-3 py-1 rounded-md text-[11px] font-mono text-slate-300 border border-slate-700">
+                      🔒 {productUrl}
                     </div>
                   </div>
 
-                  {/* Right Column: Pricing, Scarcity (Units Left), Sizing & Cross-Sell (7 cols) */}
-                  <div className="lg:col-span-7 space-y-6">
-                    <div>
-                      <div className="flex justify-between items-center mb-1.5">
-                        <span className="text-xs uppercase tracking-wider text-slate-500 font-black">
-                          Verified Prospect Catalogue Item
-                        </span>
-                        <span className="text-xs bg-emerald-100 text-emerald-800 px-3 py-0.5 rounded-full font-bold border border-emerald-200">
-                          ● Active Smollan Solution
-                        </span>
-                      </div>
+                  <div className="relative aspect-[16/10] w-full bg-slate-950 overflow-hidden group">
+                    <img
+                      src={productScreenshot}
+                      alt={`${brandName} product page snapshot`}
+                      className="w-full h-full object-cover object-top"
+                      onError={(e) => {
+                        (e.target as HTMLImageElement).src = productFallbackScreenshot;
+                      }}
+                    />
 
-                      <h1 className="text-2xl sm:text-3xl font-black text-slate-900 tracking-tight mb-2">
-                        {brandName} Signature Engineered Piece
-                      </h1>
-
-                      {/* Reviews Star Summary & Consensus */}
-                      <div className="flex flex-wrap items-center gap-3 text-xs mb-4">
-                        <div className="flex items-center gap-1 text-amber-500">
-                          {[1, 2, 3, 4, 5].map((s) => (
-                            <Star key={s} className="w-4 h-4 fill-current" />
-                          ))}
-                        </div>
-                        <span className="font-extrabold text-slate-900">4.8</span>
-                        <span className="text-slate-400">·</span>
-                        <button
-                          onClick={() => {
-                            const el = document.getElementById('customer-reviews-section');
-                            if (el) el.scrollIntoView({ behavior: 'smooth' });
-                          }}
-                          className="text-cyan-700 hover:underline font-bold"
-                        >
-                          133 Verified Reviews
-                        </button>
-                        <span className="text-slate-400">·</span>
-                        <span className="text-emerald-700 font-bold bg-emerald-50 px-2 py-0.5 rounded text-[11px]">
-                          94% True to Size
-                        </span>
-                      </div>
-
-                      {/* Pricing Display */}
-                      <div className="space-y-2 mb-5">
-                        <div className="flex items-baseline gap-3 text-sm font-mono text-slate-900 bg-slate-50 p-3 rounded-2xl border border-slate-200">
-                          <span className="text-2xl font-black text-[#002157]">R 899.00</span>
-                          <span className="line-through text-slate-400 text-xs">R 1,199.00</span>
-                          <span className="bg-red-100 text-red-700 font-black text-[10px] px-2 py-0.5 rounded ml-auto">
-                            SAVE 25%
-                          </span>
-                        </div>
-                        <div className="text-xs text-slate-600 flex items-center gap-2 bg-slate-50 p-2.5 rounded-2xl border border-slate-200 font-medium">
-                          <span>Instalment schedule: <strong>4 interest-free instalments of R 224.75</strong> with</span>
-                          <span className="font-black text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded text-[11px]">PayFlex</span>
-                        </div>
-                      </div>
-
-                      {/* REAL-TIME UNITS LEFT SCARCITY INDICATOR */}
-                      {activeMode === 'enhanced' && (
-                        <div className="bg-amber-50/80 border border-amber-300 rounded-2xl p-4 space-y-2 animate-in fade-in">
-                          <div className="flex justify-between items-center text-xs">
-                            <span className="font-black text-amber-900 flex items-center gap-1.5">
-                              <Flame className="w-4 h-4 text-amber-600 fill-current" />
-                              <span>High Demand: Only {unitsLeft} units left in stock!</span>
-                            </span>
-                            <span className="text-[11px] font-bold text-amber-800">
-                              18 shoppers viewing now
-                            </span>
-                          </div>
-                          
-                          <div className="w-full h-2 bg-amber-200 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-gradient-to-r from-amber-500 to-red-500 rounded-full transition-all duration-500 animate-pulse"
-                              style={{ width: `${(unitsLeft / 12) * 100}%` }}
-                            />
-                          </div>
-                          <p className="text-[11px] text-amber-800 font-medium">
-                            Order within <strong className="text-amber-950 font-bold">01h 44m</strong> for guaranteed next-day dispatch from Midrand DC.
-                          </p>
-                        </div>
-                      )}
-
-                      {/* Sizing Section */}
-                      <div className="border-t border-slate-100 pt-5 space-y-3">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-extrabold text-slate-900 uppercase tracking-wide">
-                            Select Variant / Size
-                          </span>
+                    {/* Smollan Enhancement Overlays */}
+                    {activeMode === 'enhanced' && (
+                      <div className="absolute inset-0 bg-black/5 backdrop-blur-[0.5px] animate-in fade-in duration-500">
+                        
+                        {/* 1. Sizing Guide Modal Trigger (Adjacent to sizing area) */}
+                        <div className="absolute top-[40%] right-[15%] animate-in slide-in-from-right-4">
                           <button 
-                            onClick={() => setShowSizeModal(true)} 
-                            className="text-xs font-bold text-cyan-600 hover:text-cyan-800 underline flex items-center gap-1"
+                            onClick={() => setShowSizeModal(true)}
+                            className="bg-white text-[#002157] px-4 py-2.5 rounded-2xl shadow-2xl border-2 border-[#00e5ff] flex items-center gap-2 hover:bg-cyan-50 transition transform hover:scale-105"
                           >
-                            <SlidersHorizontal className="w-3.5 h-3.5" />
-                            Inline Sizing &amp; Fit Guide
+                            <Layout className="w-4 h-4 text-[#00e5ff]" />
+                            <div className="text-left">
+                              <div className="text-[10px] font-black uppercase tracking-wider text-cyan-700 leading-none mb-0.5">Smollan Accelerator</div>
+                              <div className="text-xs font-black">View Interactive Size Guide</div>
+                            </div>
                           </button>
                         </div>
 
-                        <div className="grid grid-cols-4 gap-2.5">
-                          {['UK 6', 'UK 8', 'UK 10', 'UK 12'].map((size) => (
-                            <button
-                              key={size}
-                              onClick={() => setSelectedSize(size)}
-                              className={`py-3 text-xs font-black rounded-2xl border transition uppercase ${
-                                selectedSize === size
-                                  ? 'border-[#002157] bg-[#002157] text-[#00e5ff] shadow-md ring-2 ring-cyan-400/20'
-                                  : 'border-slate-200 text-slate-700 hover:border-slate-400 bg-white'
-                              }`}
-                            >
-                              {size}
-                            </button>
-                          ))}
-                        </div>
-
-                        {/* Dynamic Size Availability Box */}
-                        <div className="mt-3.5 p-3.5 bg-neutral-900 text-white flex items-center justify-between border-l-4 border-[#00e5ff] rounded-r-2xl transition-all shadow-md">
-                          <div className="flex items-center gap-2.5">
-                            <span
-                              className={`w-2.5 h-2.5 rounded-full shrink-0 ${
-                                currentSizeStock === 0
-                                  ? 'bg-neutral-500'
-                                  : currentSizeStock <= 3
-                                  ? 'bg-red-500 animate-pulse'
-                                  : 'bg-emerald-400'
-                              }`}
-                            />
+                        {/* 2. Stock Scarcity Alert (Top Right) */}
+                        <div className="absolute top-6 right-6 animate-in slide-in-from-right-4">
+                          <div className="bg-amber-500 text-slate-950 px-4 py-3 rounded-2xl shadow-2xl border border-amber-300 flex items-center gap-3">
+                            <div className="w-10 h-10 rounded-full bg-amber-400/50 flex items-center justify-center animate-pulse">
+                              <Flame className="w-5 h-5 fill-current" />
+                            </div>
                             <div>
-                              <span className="text-xs font-bold uppercase tracking-wider block text-white">
-                                {selectedSize} Available
-                              </span>
-                              <span className="text-[11px] text-neutral-300 block">
-                                {currentSizeStock === 0
-                                  ? 'Currently out of stock in SA warehouse'
-                                  : currentSizeStock <= 3
-                                  ? 'Fast-selling size · Reserve before stock runs out'
-                                  : 'In stock · Dispatches from SA within 24-48 hours'}
-                              </span>
+                              <div className="text-[10px] font-black uppercase tracking-wider opacity-80">High Demand Alert</div>
+                              <div className="text-sm font-black">Only {unitsLeft} units left in stock</div>
                             </div>
                           </div>
-                          <div className="text-right shrink-0">
-                            <span
-                              className={`inline-block px-2.5 py-1 text-[10px] font-black uppercase tracking-wider rounded ${
-                                currentSizeStock === 0
-                                  ? 'bg-neutral-800 text-neutral-400'
-                                  : currentSizeStock <= 3
-                                  ? 'bg-red-600 text-white'
-                                  : 'bg-emerald-600 text-white'
-                              }`}
+                        </div>
+
+                        {/* 3. Review Consensus Floating Badge */}
+                        <div className="absolute bottom-24 left-10 animate-in slide-in-from-left-4">
+                          <div className="bg-white/95 backdrop-blur-md p-4 rounded-3xl shadow-2xl border border-slate-200 flex flex-col items-center text-center gap-2 max-w-[180px]">
+                            <div className="flex items-center gap-0.5">
+                              {[1, 2, 3, 4, 5].map(i => <Star key={i} className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />)}
+                            </div>
+                            <div className="text-xs font-black text-slate-900">4.8 / 5.0 Consensus</div>
+                            <div className="text-[10px] text-slate-500 font-medium">From 128 verified buyers</div>
+                            <button 
+                              onClick={() => {
+                                const el = document.getElementById('customer-reviews-section');
+                                if (el) el.scrollIntoView({ behavior: 'smooth' });
+                              }}
+                              className="text-[10px] font-bold text-cyan-700 hover:underline mt-1"
                             >
-                              {currentSizeStock === 0
-                                ? 'Sold Out'
-                                : currentSizeStock <= 3
-                                ? `Only ${currentSizeStock} left in SA!`
-                                : `${currentSizeStock} in stock`}
-                            </span>
+                              Read Verified Reviews ↓
+                            </button>
                           </div>
                         </div>
-                      </div>
 
-                      {/* Primary Add to Cart CTA */}
-                      <div className="pt-4 space-y-3">
-                        <button 
-                          onClick={() => {
-                            setUnitsLeft(Math.max(1, unitsLeft - 1));
-                            alert(`Added ${brandName} Signature Item (${selectedSize}) to cart!`);
-                          }}
-                          className="w-full bg-[#002157] hover:bg-slate-900 text-white py-4 rounded-2xl font-black text-sm uppercase tracking-wider shadow-xl transition flex items-center justify-center gap-2 border border-cyan-400/30"
-                        >
-                          <ShoppingBag className="w-4 h-4 text-[#00e5ff]" />
-                          <span>Add to Cart — R 899.00 ({selectedSize})</span>
-                        </button>
-
-                        <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
-                          <span className="flex items-center gap-1">
-                            <Truck className="w-3.5 h-3.5 text-cyan-600" />
-                            Free Delivery on orders over R 450
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <RotateCcw className="w-3.5 h-3.5 text-emerald-600" />
-                            Hassle-Free 30-Day Returns
-                          </span>
-                        </div>
-
-                        {/* Download App & Product Profile (PP) Banner */}
-                        <div className="mt-4 bg-white border border-slate-200 p-4 rounded-2xl flex items-center justify-between gap-4 shadow-xs">
-                          <div className="flex flex-col gap-1">
-                            <span className="font-extrabold text-xs tracking-wider uppercase text-slate-900">
-                              GET THE {brandName.toUpperCase()} APP
-                            </span>
-                            <p className="text-[11px] text-slate-500 font-medium">
-                              Exclusive discounts, early lookbook drops and live order tracking!
-                            </p>
-                            {appDownloadNotice ? (
-                              <span className="text-[11px] font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 mt-1 rounded border border-emerald-200 inline-block w-fit">
-                                Redirecting to South Africa App Store...
-                              </span>
-                            ) : (
-                              <div className="flex items-center gap-3 mt-1 text-[11px]">
-                                <a
-                                  href="#download-app"
-                                  onClick={(e) => {
-                                    e.preventDefault();
-                                    setAppDownloadNotice(true);
-                                    setTimeout(() => setAppDownloadNotice(false), 3000);
-                                  }}
-                                  className="font-black uppercase tracking-wider text-[#002157] underline underline-offset-4 hover:text-cyan-700 transition"
-                                >
-                                  DOWNLOAD APP
-                                </a>
-                                <span className="text-slate-300">·</span>
-                                <button
-                                  onClick={handleDownloadPP}
-                                  className="font-bold uppercase tracking-wider text-cyan-700 hover:underline flex items-center gap-1"
-                                >
-                                  <FileDown className="w-3 h-3" />
-                                  <span>DOWNLOAD PP (SPEC SHEET)</span>
-                                </button>
+                        {/* 4. Cross-Sell "What Goes Well With" Drawer Preview */}
+                        <div className="absolute bottom-6 right-6 animate-in slide-in-from-bottom-4">
+                          <div className="bg-[#002157] text-white p-4 rounded-3xl shadow-2xl border border-[#00e5ff]/30 flex flex-col gap-3 min-w-[280px]">
+                            <div className="flex items-center gap-2 text-[#00e5ff]">
+                              <Zap className="w-4 h-4 fill-current" />
+                              <span className="text-[10px] font-black uppercase tracking-widest">Complete the Look & Save 15%</span>
+                            </div>
+                            <div className="flex gap-2">
+                              {[1, 2].map(i => (
+                                <div key={i} className="w-10 h-10 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center">
+                                  <ImageIcon className="w-4 h-4 text-slate-500" />
+                                </div>
+                              ))}
+                              <div className="flex-1 flex flex-col justify-center">
+                                <div className="text-[10px] font-bold">+2 Curated Items</div>
+                                <div className="text-[10px] text-cyan-300 font-black">R {finalBundlePrice}.00 (Bundle)</div>
                               </div>
-                            )}
-                          </div>
-                          <div className="shrink-0 bg-[#002157] text-[#00e5ff] w-12 h-12 rounded-xl flex items-center justify-center p-1 shadow">
-                            <span className="font-black text-[10px] tracking-wider">APP</span>
+                            </div>
+                            <button 
+                              onClick={() => {
+                                setBundleAdded(true);
+                                setTimeout(() => setBundleAdded(false), 3000);
+                              }}
+                              className="w-full bg-[#00e5ff] text-[#002157] py-2 rounded-xl text-[10px] font-black uppercase tracking-wider hover:bg-white transition"
+                            >
+                              {bundleAdded ? '✓ Added to Cart' : 'Add Bundle to Cart'}
+                            </button>
                           </div>
                         </div>
-                      </div>
 
-                    </div>
+                        {/* 5. Floating Value Proposition Chips */}
+                        <div className="absolute top-6 left-6 flex flex-col gap-2">
+                          <div className="bg-emerald-500 text-white px-3 py-1.5 rounded-full shadow-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-wider border border-emerald-400">
+                            <Truck className="w-3.5 h-3.5" />
+                            <span>Verified 24h Courier Dispatch</span>
+                          </div>
+                          <div className="bg-cyan-600 text-white px-3 py-1.5 rounded-full shadow-xl flex items-center gap-2 text-[10px] font-black uppercase tracking-wider border border-cyan-500">
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>Smollan Authenticated Merchant</span>
+                          </div>
+                        </div>
+
+                      </div>
+                    )}
+
+                    {/* Baseline View Label */}
+                    {activeMode === 'current' && (
+                      <div className="absolute top-6 left-6 bg-slate-900/80 backdrop-blur-md text-white px-4 py-2 rounded-2xl border border-slate-700 flex items-center gap-2 text-xs font-bold shadow-2xl">
+                        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+                        <span>Baseline Product Experience (Unmodified)</span>
+                      </div>
+                    )}
                   </div>
                 </div>
 
-                {/* FEATURE 2: "WHAT GOES WELL WITH" (RETAIL BUNDLE) */}
-                <div className="bg-gradient-to-br from-slate-50 via-white to-cyan-50/40 rounded-3xl border border-slate-200 p-6 sm:p-8 space-y-6 shadow-sm">
-                  <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-slate-200/80 pb-4">
-                    <div>
-                      <span className="text-[10px] uppercase font-black text-cyan-800 tracking-wider">
-                        Curated Commerce Recommendation Engine
-                      </span>
-                      <h3 className="text-xl font-black text-slate-900">
-                        What Goes Well With This Piece (Complete The Look)
-                      </h3>
-                      <p className="text-xs text-slate-600">
-                        Cross-sell items frequently styled together by {brandName} customers. Bundle and save an extra 15%.
-                      </p>
-                    </div>
-                    <div className="text-right">
-                      <span className="text-xs bg-cyan-100 text-cyan-900 font-bold px-3 py-1 rounded-full border border-cyan-300">
-                        Dynamic Bundle Savings
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Bundle Items Cards */}
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    {[
-                      {
-                        id: 'item-1',
-                        name: 'Classic Selvedge Denim Trucker Jacket',
-                        category: 'Outerwear',
-                        price: retailItem1Price,
-                        tag: 'Best Match'
-                      },
-                      {
-                        id: 'item-2',
-                        name: 'Heavyweight 100% Organic Cotton Tee',
-                        category: 'Tops & Tees',
-                        price: retailItem2Price,
-                        tag: 'Essential'
-                      },
-                      {
-                        id: 'item-3',
-                        name: 'Full-Grain Handcrafted Leather Belt',
-                        category: 'Accessories',
-                        price: retailItem3Price,
-                        tag: 'Accessory'
-                      }
-                    ].map((item) => (
-                      <div 
-                        key={item.id}
-                        onClick={() => setBundleItems(prev => ({ ...prev, [item.id]: !prev[item.id] }))}
-                        className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between space-y-3 ${
-                          bundleItems[item.id]
-                            ? 'border-cyan-500 bg-white shadow-md ring-2 ring-cyan-500/20'
-                            : 'border-slate-200 bg-slate-50/60 opacity-70 hover:opacity-100'
-                        }`}
-                      >
-                        <div className="flex items-start justify-between">
-                          <div className="flex items-center gap-2">
-                            <input
-                              type="checkbox"
-                              checked={!!bundleItems[item.id]}
-                              onChange={() => {}}
-                              className="w-4 h-4 rounded text-cyan-600 focus:ring-cyan-500"
-                            />
-                            <span className="text-[10px] font-black uppercase text-cyan-800 bg-cyan-50 px-2 py-0.5 rounded border border-cyan-200">
-                              {item.tag}
-                            </span>
-                          </div>
-                          <span className="font-mono text-xs font-black text-slate-900">
-                            R {item.price}.00
-                          </span>
-                        </div>
-
-                        <div className="aspect-video bg-slate-100 rounded-xl flex items-center justify-center text-slate-400 font-mono text-xs font-bold p-2 text-center">
-                          [Curated {item.category}]
-                        </div>
-
-                        <div>
-                          <h4 className="font-bold text-xs text-slate-900 line-clamp-1">{item.name}</h4>
-                          <p className="text-[10px] text-slate-500">{item.category} · In Stock</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Bundle Total & 1-Click Purchase Action */}
-                  <div className="bg-white p-5 rounded-2xl border border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-4 shadow-sm">
-                    <div>
-                      <div className="text-xs text-slate-500 font-medium">
-                        Total for this complete look (Base SKU + selected pairings):
-                      </div>
-                      <div className="flex items-baseline gap-2.5 mt-0.5">
-                        <span className="text-2xl font-black text-[#002157]">R {finalBundlePrice}.00</span>
-                        <span className="line-through text-slate-400 text-sm font-mono">R {bundleTotal}.00</span>
-                        <span className="text-xs font-extrabold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded">
-                          You Save R {bundleSavings}.00 (15% OFF)
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="flex items-center gap-3 w-full sm:w-auto">
-                      <button
-                        onClick={() => {
-                          setBundleAdded(true);
-                          setTimeout(() => setBundleAdded(false), 4000);
-                        }}
-                        className="w-full sm:w-auto bg-[#002157] hover:bg-slate-900 text-[#00e5ff] px-6 py-3.5 rounded-2xl font-black text-xs uppercase tracking-wider transition shadow-lg flex items-center justify-center gap-2 border border-cyan-400/40"
-                      >
-                        {bundleAdded ? (
-                          <>
-                            <Check className="w-4 h-4 text-emerald-400" />
-                            <span>Bundle Added to Cart!</span>
-                          </>
-                        ) : (
-                          <>
-                            <Plus className="w-4 h-4" />
-                            <span>Add Complete Look to Cart</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* FEATURE 3: VERIFIED REVIEWS & RATINGS BREAKDOWN */}
-                <div id="customer-reviews-section">
+                <div id="customer-reviews-section" className="pt-8">
                   <ProductReviews
                     brandName={brandName}
-                    category={currentAudit?.businessCategory}
-                    itemTitle={`${brandName} Signature Item`}
+                    category={catName}
+                    itemTitle={productTitle}
                     archetype="b2c_retail"
                   />
                 </div>
@@ -1687,15 +1472,22 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
               <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-6">
                 {[1, 2, 3, 4].map((itemNum) => (
                   <div key={itemNum} className="bg-white rounded-2xl border border-slate-200 p-4 space-y-3 shadow-xs hover:shadow-md transition">
-                    <div className="aspect-square bg-slate-100 rounded-xl flex flex-col items-center justify-center font-bold text-slate-400 relative p-3 text-center">
-                      <span className="text-xs font-mono font-bold text-slate-600">{brandInitials} Item #{itemNum}</span>
-                      <span className="text-[10px] text-slate-400 mt-1">[Catalogue Image]</span>
+                    <div className="aspect-square bg-slate-100 rounded-xl overflow-hidden relative shadow-inner">
+                      <img 
+                        src={productScreenshot} 
+                        alt={`Real listing item ${itemNum}`} 
+                        className="w-full h-full object-cover"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).src = `https://image.thum.io/get/width/400/crop/400/${encodeURIComponent(brandUrl)}`;
+                        }}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-slate-900/40 to-transparent pointer-events-none" />
                       <span className="absolute top-2 left-2 bg-amber-500 text-slate-950 text-[9px] font-black px-1.5 py-0.5 rounded shadow">
                         Only {itemNum + 2} left
                       </span>
                     </div>
                     <div className="space-y-1">
-                      <h4 className="text-xs font-bold text-slate-800">[Item Title Specification]</h4>
+                      <h4 className="text-xs font-bold text-slate-800 truncate">{productTitle} - Variant {itemNum}</h4>
                       <div className="text-xs font-mono text-slate-600">
                         <span>R {(itemNum * 250) + 299}.00</span>
                       </div>
@@ -1895,8 +1687,12 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                 </div>
 
                 <div className="flex gap-3 py-2 border-b border-slate-100">
-                  <div className="w-14 h-14 rounded-xl bg-[#002157] text-[#00e5ff] flex items-center justify-center font-bold text-xs shrink-0 font-mono">
-                    {brandInitials}
+                  <div className="w-14 h-14 rounded-xl bg-slate-100 overflow-hidden shrink-0 border border-slate-200">
+                    <img 
+                      src={productScreenshot} 
+                      alt="Cart item" 
+                      className="w-full h-full object-cover"
+                    />
                   </div>
                   <div className="flex-1 text-xs">
                     <h4 className="font-bold text-slate-900">{brandName} Signature Piece</h4>
