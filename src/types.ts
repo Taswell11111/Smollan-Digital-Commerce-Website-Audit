@@ -10,12 +10,16 @@ export interface Finding {
   effort: 'low' | 'medium' | 'high';
   proposedRemedy: string;
   serviceLine: string;
+  source: 'measured' | 'ai';
 }
 
 export interface CategoryCheck {
+  id?: string;
   name: string;
   status: 'pass' | 'partial' | 'fail' | 'not_assessed';
   evidence: string;
+  recoverablePoints?: number;
+  potentialFix?: string;
 }
 
 export interface CategoryResult {
@@ -30,11 +34,14 @@ export interface InspectedPage {
   pageType: string;
   status: number;
   loadTimeMs: number;
+  ttfbMs?: number;
+  downloadTimeMs?: number;
   title: string;
   description: string;
   h1s: string[];
   h2s: string[];
   linksCount: number;
+  navLinksCount?: number;
   imagesCount: number;
   missingAltCount: number;
   buttons: string[];
@@ -42,6 +49,8 @@ export interface InspectedPage {
   hasSizeGuide: boolean;
   hasCanonical: boolean;
   hasMetaViewport: boolean;
+  screenshotUrl?: string;
+  fallbackScreenshotUrl?: string;
 }
 
 export interface IndustryBenchmark {
@@ -51,6 +60,9 @@ export interface IndustryBenchmark {
     benchmark: number;
     delta: number;
     status: 'Lagging' | 'On Par' | 'Outperforming';
+    source?: string;
+    sourceDate?: string;
+    notes?: string;
   }>;
 }
 
@@ -63,10 +75,13 @@ export interface AuditRecord {
   targetMarket: string;
   primaryObjective: string;
   depth: 'quick' | 'standard' | 'deep';
+  schemaVersion?: number;
+  rulesetVersion?: string;
   overallScore: number;
   projectedOverallScore: number;
   scoreUplift: number;
   categoryResults: Record<string, CategoryResult>;
+  measurements?: Record<string, any>;
   pagesInspected?: InspectedPage[];
   industryBenchmarks?: IndustryBenchmark;
   crawlSummary: {
@@ -91,6 +106,62 @@ export interface AuditRecord {
     recommended: number;
     content: number;
   };
+  aiNarrativeStatus?: 'generated' | 'unavailable';
+  type?: 'prospect' | 'competitor';
+  auditError?: string | null;
+  evaluationNotice?: {
+    type: 'error' | 'warning' | 'info';
+    title: string;
+    description: string;
+    remediationSteps: string[];
+    affectedUrl?: string;
+  };
+  agenticCommerce?: AgenticCommerceAudit;
+  executionCost?: AuditExecutionCost;
+}
+
+export interface AgenticCommerceAudit {
+  agenticScore: number; // 0 - 100
+  readinessTier: 'Emerging' | 'Developing' | 'Agentic-Ready' | 'Autonomous Leader';
+  fourLayerArchitecture: {
+    layer1MasterData: { score: number; status: 'pass' | 'partial' | 'fail'; gtinCoverage: string; mpnPresent: boolean; details: string };
+    layer2DynamicData: { score: number; status: 'pass' | 'partial' | 'fail'; syncLatency: string; ucpCompliant: boolean; details: string };
+    layer3SemanticData: { score: number; status: 'pass' | 'partial' | 'fail'; outcomeFocus: boolean; contextScore: number; details: string };
+    layer4TrustData: { score: number; status: 'pass' | 'partial' | 'fail'; esgMetadata: boolean; complianceDeclared: boolean; details: string };
+  };
+  technicalCheckpoints: {
+    schemaOrgCoverage: { score: number; schemasFound: string[]; missingSchemas: string[]; details: string };
+    aiCrawlerAccess: { score: number; unblockedBots: string[]; blockedBots: string[]; robotsTxtStatus: string };
+    platformFeedsAndMcp: { mcpReady: boolean; feedsConfigured: string[]; details: string };
+    paymentPrimitives: { sptReady: boolean; protocolSupport: string[]; kyaSecurityStatus: string };
+  };
+  shareOfModelEstimate: {
+    projectedCitationRank: string;
+    projectedConversionLift: string;
+    projectedMarketValueShare: string;
+  };
+  ninetyDayRoadmap: {
+    phase1Days1to30: { title: string; focus: string; deliverables: string[] };
+    phase2Days31to60: { title: string; focus: string; deliverables: string[] };
+    phase3Days61to90: { title: string; focus: string; deliverables: string[] };
+  };
+}
+
+export interface AuditExecutionCost {
+  totalEstimatedCostZar: number;
+  totalEstimatedCostUsd: number;
+  executionTimeMs: number;
+  crawlerBandwidthBytes: number;
+  pagesScannedCount: number;
+  geminiInferenceTokens?: {
+    promptTokens: number;
+    completionTokens: number;
+    modelName: string;
+    tokenCostUsd: number;
+  };
+  computeResourceCostUsd: number;
+  commercialAuditBenchmarkZar: number;
+  costSavingsPercent: number;
 }
 
 export interface LeadRecord {
@@ -130,6 +201,9 @@ export interface UrlInspectionResult {
   responseTimeMs: number;
   platform: string;
   internalLinksCount?: number;
+  availablePagesCount?: number;
+  sampleDiscoveredUrls?: string[];
+  sitemapUrlCount?: number;
   hasSitemap?: boolean;
   isHttps: boolean;
   securityStatus: string;

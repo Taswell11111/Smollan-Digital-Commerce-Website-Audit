@@ -33,10 +33,13 @@ export const Navbar: React.FC<NavbarProps> = ({
   onThemeChange
 }) => {
   const mainNavItems = [
+    { id: 'new_audit', label: 'Audit Gateway', icon: Plus },
+    { id: 'overview', label: 'Executive Dashboard', icon: LayoutDashboard, disabled: !currentAudit },
     { id: 'report', label: 'Audit & Intelligence Report', icon: FileText, disabled: !currentAudit },
-    { id: 'gap', label: 'Competitive Gap', icon: TrendingUp },
-    { id: 'sandbox', label: 'Enhancement Sandbox', icon: Sparkles },
-    { id: 'pitch', label: 'Commercial Pitch Studio', icon: Mail, disabled: !currentAudit }
+    { id: 'gap', label: 'Competitive Gap', icon: SlidersHorizontal, disabled: !currentAudit },
+    { id: 'dashboard', label: 'Sales Cockpit', icon: TrendingUp, disabled: !currentAudit },
+    { id: 'sandbox', label: 'Sandbox', icon: Sparkles, disabled: !currentAudit },
+    { id: 'pitch', label: 'Pitch Studio', icon: Mail, disabled: !currentAudit }
   ];
 
   return (
@@ -55,36 +58,20 @@ export const Navbar: React.FC<NavbarProps> = ({
           <div className="flex items-center gap-2 sm:gap-3">
             <ThemeSelector currentTheme={currentTheme} onThemeChange={onThemeChange} />
             
-            {/* Detailed Dashboard Toggle Icon - MOVED TO LEFT */}
-            <button
-              onClick={() => {
-                setDashboardMode(dashboardMode === 'overview' ? 'detailed' : 'overview');
-                setActiveTab('overview');
-              }}
-              className={`p-2 rounded-xl text-xs font-semibold transition border ${
-                dashboardMode === 'detailed'
-                  ? 'bg-[#00e5ff] text-[#002157] border-[#00e5ff]'
-                  : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
-              }`}
-              title="Toggle Detailed Dashboard"
-            >
-              <SlidersHorizontal className="w-4 h-4" />
-            </button>
-
             <div
               className="flex items-center gap-2.5 cursor-pointer select-none"
               onClick={() => {
                 setActiveTab('new_audit');
               }}
             >
-              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#00e5ff] to-blue-600 flex items-center justify-center font-black text-[#002157] text-lg shadow-lg ring-2 ring-cyan-400/20 shrink-0">
-                SD
+              <div className="w-9 h-9 rounded-xl bg-[#00b4d8] text-[#091b42] flex items-center justify-center font-black text-sm tracking-tighter shadow-md shrink-0">
+                SM
               </div>
               <div className="hidden sm:block">
                 <div className="flex items-center gap-1.5">
                   <span className="text-xs uppercase tracking-widest text-[#00e5ff] font-extrabold">Smollan Digital</span>
-                  <span className="text-[9px] bg-cyan-950/80 text-cyan-300 px-1.5 py-0.2 rounded-full border border-cyan-500/30 font-semibold">
-                    eComplete
+                  <span className="text-[9px] bg-white/10 text-cyan-200 px-1.5 py-0.2 rounded font-medium">
+                    Commerce Intelligence
                   </span>
                 </div>
                 <h1 className="text-xs font-bold tracking-tight text-white/90 truncate max-w-[200px] lg:max-w-none">
@@ -115,7 +102,6 @@ export const Navbar: React.FC<NavbarProps> = ({
               </div>
             )}
 
-
             {/* Saved Audits History */}
             <button
               onClick={() => setActiveTab('history')}
@@ -145,30 +131,32 @@ export const Navbar: React.FC<NavbarProps> = ({
 
         </div>
 
-        {/* Clean, Streamlined Navigation Bar */}
-        <nav className="flex space-x-1 py-1.5 border-t border-white/10">
-          {mainNavItems.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => !item.disabled && setActiveTab(item.id)}
-                disabled={item.disabled}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition border ${
-                  isActive
-                    ? 'bg-[#00e5ff] text-[#002157] border-[#00e5ff] shadow-md font-bold'
-                    : item.disabled
-                    ? 'text-white/30 border-transparent cursor-not-allowed'
-                    : 'text-white/80 border-white/10 hover:bg-white/10 hover:text-white'
-                }`}
-              >
-                <Icon className={`w-4 h-4 ${isActive ? 'text-[#002157]' : 'text-[#00e5ff]'}`} />
-                <span>{item.label}</span>
-              </button>
-            );
-          })}
-        </nav>
+        {/* Clean, Streamlined Navigation Bar (Revealed only after audit is completed and proceeded) */}
+        {currentAudit && (
+          <nav className="flex space-x-1 py-1.5 border-t border-white/10">
+            {mainNavItems.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => !item.disabled && setActiveTab(item.id)}
+                  disabled={item.disabled}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition border ${
+                    isActive
+                      ? 'bg-[#00e5ff] text-[#002157] border-[#00e5ff] shadow-md font-bold'
+                      : item.disabled
+                      ? 'text-white/30 border-transparent cursor-not-allowed'
+                      : 'text-white/80 border-white/10 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <Icon className={`w-4 h-4 ${isActive ? 'text-[#002157]' : 'text-[#00e5ff]'}`} />
+                  <span>{item.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
       </div>
     </header>
   );

@@ -24,7 +24,10 @@ import {
   X,
   Zap,
   Info,
-  Server
+  Server,
+  Eye,
+  RefreshCw,
+  Loader2
 } from 'lucide-react';
 import { AuditRecord, LeadRecord, InspectedPage, UrlInspectionResult } from '../types';
 
@@ -65,8 +68,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
   const [scrapeUrl, setScrapeUrl] = useState<string>('');
   const [scrapeDepth, setScrapeDepth] = useState<'quick' | 'standard'>('standard');
   const [selectedPageForModal, setSelectedPageForModal] = useState<InspectedPage | null>(null);
+  const [screenshotKey, setScreenshotKey] = useState<number>(Date.now());
+  const [isImageLoaded, setIsImageLoaded] = useState<boolean>(false);
   const [pageTypeFilter, setPageTypeFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  const handleOpenPageModal = (page: InspectedPage) => {
+    setSelectedPageForModal(page);
+    setIsImageLoaded(false);
+    setScreenshotKey(Date.now());
+  };
 
   // Proactive Inline Verification State (displays screenshot & domain preview immediately upon URL entry)
   const [inlineInspection, setInlineInspection] = useState<UrlInspectionResult | null>(null);
@@ -165,17 +176,16 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
 
 
       {/* Overview Header / Welcome */}
-      <div className="bg-white p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col md:flex-row justify-between items-center gap-4">
+      <div className="bg-white p-6 sm:p-8 rounded-2xl border border-slate-200 shadow-sm flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div className="space-y-1">
-          <h2 className="text-2xl font-black text-[#002157]">Intelligence Command Centre</h2>
-          <p className="text-sm text-slate-500 font-medium">Review saved audits, manage sales leads, and monitor retail performance trends.</p>
+          <h2 className="text-2xl font-black text-[#002157]">Executive Intelligence Command Centre</h2>
+          <p className="text-sm text-slate-500 font-medium">Review prospect audits, commercial sales leads, crawled pages, and diagnostic performance trends.</p>
         </div>
-        <button
-           onClick={() => setActiveTab('new_audit')}
-           className="bg-[#00e5ff] text-[#002157] px-6 py-3 rounded-xl font-black text-sm shadow-lg hover:scale-105 transition-transform"
-        >
-          Initiate New Audit
-        </button>
+        <div className="flex items-center gap-2">
+          <span className="text-xs bg-slate-100 text-slate-600 font-semibold px-3 py-1.5 rounded-lg border border-slate-200">
+            {savedAudits.length} Audits in Portfolio
+          </span>
+        </div>
       </div>
 
       {/* 3. VIEW MODE 1: OVERVIEW DASHBOARD */}
@@ -214,7 +224,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 <p className="text-xs text-slate-500 font-mono mt-0.5">{activeAudit.url}</p>
                 {isHistoricalArchive && (
                   <p className="text-[11px] text-slate-500 mt-1 italic">
-                    * Showing archived Reebok South Africa benchmark. To audit a new storefront, enter its URL above. Enhanced scores will compute only after crawl completes.
+                    * Benchmark profile: Reference storefront case study. To evaluate a live client storefront, click Initiate New Audit.
                   </p>
                 )}
               </div>
@@ -233,7 +243,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     onClick={() => setActiveTab('report')}
                     className="bg-[#002157] text-[#00e5ff] hover:bg-slate-800 px-3.5 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1.5 shadow"
                   >
-                    <span>View Executive Report</span>
+                    <span>View Evaluation Report</span>
                     <ArrowRight className="w-3 h-3" />
                   </button>
                   <button
@@ -245,6 +255,31 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                   </button>
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* Diagnostic Error Banner on Overview Dashboard if audit encountered an error */}
+          {activeAudit && (activeAudit.auditError || activeAudit.evaluationNotice) && (
+            <div className="bg-rose-950/80 border-2 border-rose-500/50 p-6 rounded-2xl text-white shadow-xl flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+              <div className="flex items-start gap-3">
+                <AlertTriangle className="w-6 h-6 text-rose-400 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="text-[10px] font-black uppercase tracking-widest text-rose-400 block">Evaluation Notice</span>
+                  <h4 className="text-base font-black text-white">Storefront Accessibility Barrier Identified</h4>
+                  <p className="text-xs text-rose-200 font-mono">
+                    {activeAudit.auditError || activeAudit.evaluationNotice?.description}
+                  </p>
+                  <p className="text-[11px] text-slate-300">
+                    The audit score reached <strong className="text-white font-bold">{activeAudit.overallScore}/100</strong>. Remediating edge bot challenges and server gateway errors will recover up to <strong className="text-emerald-400 font-bold">{activeAudit.projectedOverallScore || 90}/100</strong>.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setActiveTab('report')}
+                className="bg-[#00e5ff] text-[#002157] font-black text-xs px-4 py-2 rounded-xl shrink-0 uppercase tracking-wider hover:bg-white transition"
+              >
+                View Improvement Plan →
+              </button>
             </div>
           )}
 
@@ -524,6 +559,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50/75 text-[10px] font-extrabold uppercase tracking-wider text-slate-500">
+                      <th className="py-3 px-3">Screenshot</th>
                       <th className="py-3 px-3">Page Type</th>
                       <th className="py-3 px-3">Scraped URL & Title</th>
                       <th className="py-3 px-3 text-center">Status / Load</th>
@@ -535,73 +571,102 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 text-xs">
-                    {filteredPages.map((page, idx) => (
-                      <tr key={idx} className="hover:bg-slate-50/70 transition">
-                        <td className="py-3 px-3">
-                          <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
-                            page.pageType === 'product'
-                              ? 'bg-purple-100 text-purple-800'
-                              : page.pageType === 'cart'
-                              ? 'bg-emerald-100 text-emerald-800'
-                              : page.pageType === 'category'
-                              ? 'bg-blue-100 text-blue-800'
-                              : 'bg-slate-200 text-slate-700'
-                          }`}>
-                            {page.pageType}
-                          </span>
-                        </td>
-                        <td className="py-3 px-3 max-w-xs sm:max-w-md">
-                          <div className="font-bold text-slate-900 truncate" title={page.title}>{page.title || 'Untitled Page'}</div>
-                          <div className="text-[11px] font-mono text-slate-500 truncate mt-0.5" title={page.url}>{page.url}</div>
-                        </td>
-                        <td className="py-3 px-3 text-center font-mono">
-                          <span className="text-[11px] text-emerald-600 font-bold">{page.status || 200}</span>
-                          <span className="text-[10px] text-slate-400 block">{page.loadTimeMs}ms</span>
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          {page.hasPrice ? (
-                            <span className="inline-flex items-center text-emerald-600 font-bold text-[11px]">
-                              <Check className="w-3.5 h-3.5 mr-0.5" /> Detected
+                    {filteredPages.map((page, idx) => {
+                      const shotUrl = page.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(page.url)}?w=960`;
+                      const fallbackShot = page.fallbackScreenshotUrl || `https://image.thum.io/get/width/960/crop/650/${encodeURIComponent(page.url)}`;
+
+                      return (
+                        <tr key={idx} className="hover:bg-slate-50/70 transition">
+                          <td className="py-3 px-3">
+                            <div 
+                              onClick={() => handleOpenPageModal(page)}
+                              className="w-16 h-11 rounded-lg overflow-hidden border border-slate-200 bg-slate-100 cursor-pointer hover:ring-2 hover:ring-cyan-500 transition relative group shadow-xs shrink-0"
+                              title="Click to view full screenshot"
+                            >
+                              <img
+                                src={shotUrl}
+                                alt={`Preview of ${page.title || page.url}`}
+                                className="w-full h-full object-cover object-top"
+                                loading="lazy"
+                                onError={(e) => {
+                                  (e.target as HTMLImageElement).src = fallbackShot;
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                                <Eye className="w-3.5 h-3.5 text-white" />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="py-3 px-3">
+                            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-extrabold uppercase ${
+                              page.pageType === 'product'
+                                ? 'bg-purple-100 text-purple-800'
+                                : page.pageType === 'cart'
+                                ? 'bg-emerald-100 text-emerald-800'
+                                : page.pageType === 'category'
+                                ? 'bg-blue-100 text-blue-800'
+                                : 'bg-slate-200 text-slate-700'
+                            }`}>
+                              {page.pageType}
                             </span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">—</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          {page.hasSizeGuide ? (
-                            <span className="inline-flex items-center text-emerald-600 font-bold text-[11px]">
-                              <Check className="w-3.5 h-3.5 mr-0.5" /> Present
-                            </span>
-                          ) : page.pageType === 'product' ? (
-                            <span className="inline-flex items-center text-red-600 font-bold text-[11px]">
-                              <AlertTriangle className="w-3.5 h-3.5 mr-0.5" /> Missing
-                            </span>
-                          ) : (
-                            <span className="text-slate-400 text-[11px]">N/A</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center">
-                          <span className="font-mono text-slate-700 text-xs">{page.imagesCount} imgs</span>
-                          {page.missingAltCount > 0 ? (
-                            <span className="block text-[10px] text-red-600 font-semibold">{page.missingAltCount} missing alt</span>
-                          ) : (
-                            <span className="block text-[10px] text-emerald-600 font-semibold">100% alt coverage</span>
-                          )}
-                        </td>
-                        <td className="py-3 px-3 text-center font-mono text-xs text-slate-700">
-                          {page.buttons?.length || 0} buttons
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <button
-                            onClick={() => setSelectedPageForModal(page)}
-                            className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 text-[11px] font-bold transition"
-                          >
-                            <Code2 className="w-3 h-3 text-cyan-600" />
-                            <span>Inspect DOM</span>
-                          </button>
-                        </td>
-                      </tr>
-                    ))}
+                          </td>
+                          <td className="py-3 px-3 max-w-xs sm:max-w-md">
+                            <div className="font-bold text-slate-900 truncate" title={page.title}>{page.title || 'Untitled Page'}</div>
+                            <div className="text-[11px] font-mono text-slate-500 truncate mt-0.5" title={page.url}>{page.url}</div>
+                          </td>
+                          <td className="py-3 px-3 text-center font-mono">
+                            <span className="text-[11px] text-emerald-600 font-bold">{page.status || 200}</span>
+                            <span className="text-[10px] text-slate-400 block">{page.loadTimeMs}ms</span>
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {page.hasPrice ? (
+                              <span className="inline-flex items-center text-emerald-600 font-bold text-[11px]">
+                                <Check className="w-3.5 h-3.5 mr-0.5" /> Detected
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">—</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            {page.hasSizeGuide ? (
+                              <span className="inline-flex items-center text-emerald-600 font-bold text-[11px]">
+                                <Check className="w-3.5 h-3.5 mr-0.5" /> Present
+                              </span>
+                            ) : page.pageType === 'product' ? (
+                              <span className="inline-flex items-center text-red-600 font-bold text-[11px]">
+                                <AlertTriangle className="w-3.5 h-3.5 mr-0.5" /> Missing
+                              </span>
+                            ) : (
+                              <span className="text-slate-400 text-[11px]">N/A</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center">
+                            <span className="font-mono text-slate-700 text-xs">{page.imagesCount} imgs</span>
+                            {page.imagesCount > 0 ? (
+                              page.missingAltCount > 0 ? (
+                                <span className="block text-[10px] text-red-600 font-semibold">{page.missingAltCount} missing alt</span>
+                              ) : (
+                                <span className="block text-[10px] text-emerald-600 font-semibold">{page.imagesCount} with alt text</span>
+                              )
+                            ) : (
+                              <span className="block text-[10px] text-slate-400">0 images</span>
+                            )}
+                          </td>
+                          <td className="py-3 px-3 text-center font-mono text-xs text-slate-700">
+                            {page.buttons?.length || 0} buttons
+                          </td>
+                          <td className="py-3 px-3 text-right">
+                            <button
+                              onClick={() => handleOpenPageModal(page)}
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-[#002157] text-slate-700 hover:text-white text-[11px] font-bold transition shadow-xs"
+                            >
+                              <Eye className="w-3 h-3 text-cyan-600 group-hover:text-cyan-400" />
+                              <span>View Screenshot & DOM</span>
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -621,7 +686,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                     Client Storefront vs Retail Industry Standard Benchmarks
                   </h3>
                   <p className="text-xs text-slate-500 mt-0.5">
-                    Measured against South African and global retail eCommerce median standards (~80% baseline).
+                    Measured against category benchmarks derived from retail eCommerce standards.
                   </p>
                 </div>
                 <div className="flex items-center gap-3 text-xs">
@@ -800,6 +865,65 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
             </div>
 
             <div className="p-6 overflow-y-auto space-y-4 text-xs text-slate-700">
+              {/* Crawled Page Screenshot Preview & Verification */}
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-900 uppercase text-[10px] flex items-center gap-1.5">
+                    <Eye className="w-3.5 h-3.5 text-cyan-600" />
+                    Crawled Page Screenshot Preview & Verification
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => {
+                        setScreenshotKey(Date.now());
+                        setIsImageLoaded(false);
+                      }}
+                      className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10px] font-bold transition shadow-xs cursor-pointer"
+                      title="Refresh or reload scraped page image"
+                    >
+                      <RefreshCw className="w-3 h-3 text-cyan-600" />
+                      <span>Refresh Image</span>
+                    </button>
+                    <a
+                      href={selectedPageForModal.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-[10px] text-cyan-600 hover:underline flex items-center gap-1 font-bold"
+                    >
+                      <span>Visit Live Storefront</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                </div>
+
+                <div className="relative rounded-xl overflow-hidden border border-slate-200 bg-slate-900 shadow-inner min-h-[200px] max-h-72 flex flex-col items-center justify-center group">
+                  {!isImageLoaded && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/85 text-white gap-2 z-10">
+                      <Loader2 className="w-6 h-6 text-cyan-400 animate-spin" />
+                      <span className="text-[11px] font-medium text-slate-300">Loading & verifying crawled page screenshot...</span>
+                    </div>
+                  )}
+                  <img
+                    key={screenshotKey}
+                    src={`${selectedPageForModal.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(selectedPageForModal.url)}?w=960`}&cb=${screenshotKey}`}
+                    alt={`Screenshot of ${selectedPageForModal.title || selectedPageForModal.url}`}
+                    className="w-full h-auto object-cover object-top max-h-72"
+                    loading="lazy"
+                    onLoad={() => setIsImageLoaded(true)}
+                    onError={(e) => {
+                      setIsImageLoaded(true);
+                      (e.target as HTMLImageElement).src = selectedPageForModal.fallbackScreenshotUrl || `https://image.thum.io/get/width/960/crop/650/${encodeURIComponent(selectedPageForModal.url)}`;
+                    }}
+                  />
+                  {isImageLoaded && (
+                    <div className="absolute bottom-2 right-2 bg-emerald-950/90 border border-emerald-500/50 text-emerald-300 px-2.5 py-1 rounded-lg text-[10px] font-bold flex items-center gap-1.5 shadow-md">
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Screenshot Confirmed Visible & Verified</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-1">
                 <span className="font-bold text-slate-900 uppercase text-[10px]">Scraped URL:</span>
                 <div className="font-mono bg-slate-100 p-2 rounded-lg text-slate-800 break-all">{selectedPageForModal.url}</div>

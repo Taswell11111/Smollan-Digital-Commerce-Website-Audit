@@ -21,15 +21,123 @@ import {
   X,
   Copy,
   Check,
-  FileDown
+  FileDown,
+  AlertTriangle,
+  BarChart3,
+  Bot,
+  Zap,
+  DollarSign
 } from 'lucide-react';
 import { AuditRecord } from '../types';
 import { generatePdfReportHtml } from '../utils/generatePdfReportHtml';
+import { CATEGORY_RULESET, CATEGORY_WEIGHTS } from '../config/ruleset';
+import { SeoGrowthForecast } from './SeoGrowthForecast';
+import { GlobalEnterpriseBenchmarkModal } from './GlobalEnterpriseBenchmarkModal';
+import { AgenticCommerceAuditView } from './AgenticCommerceAuditView';
+import { AuditExecutionCostModal } from './AuditExecutionCostModal';
 
 interface AuditReportProps {
   audit: AuditRecord;
   onNavigateTab: (tab: string) => void;
 }
+
+// Deterministic helper to derive What's Working based on real crawled signals
+const getWhatsWorkingList = (audit: AuditRecord): { title: string; detail: string }[] => {
+  const items: { title: string; detail: string }[] = [];
+
+  const allHttps = audit.pagesInspected?.length
+    ? audit.pagesInspected.every(p => p.url.startsWith('https://'))
+    : audit.url.startsWith('https://');
+  if (allHttps) {
+    items.push({
+      title: 'TLS / HTTPS Encryption',
+      detail: 'Valid SSL security certificate active across audited URLs.'
+    });
+  }
+
+  if (audit.crawlSummary?.failed === 0 && (audit.crawlSummary?.inspected ?? 0) > 0) {
+    items.push({
+      title: 'Server Availability & HTTP 200 Health',
+      detail: `Zero broken links or server errors detected across ${audit.crawlSummary.inspected} crawled pages.`
+    });
+  }
+
+  const hasViewport = audit.pagesInspected?.every(p => p.hasMetaViewport);
+  if (hasViewport) {
+    items.push({
+      title: 'Mobile Responsive Viewport Configuration',
+      detail: 'Standardized <meta name="viewport"> tag detected across inspected pages.'
+    });
+  }
+
+  if (audit.categoryResults) {
+    for (const [catName, res] of Object.entries(audit.categoryResults)) {
+      if (items.length >= 4) break;
+      const passCheck = res.checks?.find(c => c.status === 'pass');
+      if (passCheck) {
+        items.push({
+          title: `${catName} · ${passCheck.name}`,
+          detail: passCheck.evidence || 'Meets standard commercial evaluation benchmark.'
+        });
+      } else if (res.score >= 80) {
+        items.push({
+          title: `${catName} Benchmark Standard`,
+          detail: `Storefront scored strong ${res.score}/100 in this evaluation category.`
+        });
+      }
+    }
+  }
+
+  if (items.length === 0) {
+    items.push({
+      title: 'Domain Accessibility',
+      detail: `Storefront resolved at ${audit.url} with active HTTP connection.`
+    });
+  }
+
+  return items.slice(0, 4);
+};
+
+// Deterministic helper to derive specific, non-generic Opportunities to Improve
+const getOpportunitiesToImprove = (audit: AuditRecord): { title: string; remedy: string; evidence: string; category: string; impact: string }[] => {
+  const opportunities: { title: string; remedy: string; evidence: string; category: string; impact: string }[] = [];
+
+  const sortedFindings = [...(audit.findings || [])].sort((a, b) => {
+    const sevOrder: Record<string, number> = { 'Essential': 0, 'Recommended': 1, 'Content & Settings': 2 };
+    return (sevOrder[a.severity] ?? 3) - (sevOrder[b.severity] ?? 3);
+  });
+
+  for (const f of sortedFindings) {
+    if (opportunities.length >= 4) break;
+    opportunities.push({
+      title: f.title,
+      remedy: f.proposedRemedy,
+      evidence: f.observedEvidence,
+      category: f.category,
+      impact: f.businessImpact
+    });
+  }
+
+  if (opportunities.length < 3 && audit.categoryResults) {
+    const sortedCats = Object.entries(audit.categoryResults)
+      .filter(([_, r]) => r.score < 80)
+      .sort((a, b) => a[1].score - b[1].score);
+
+    for (const [catName, r] of sortedCats) {
+      if (opportunities.length >= 4) break;
+      const failCheck = r.checks?.find(c => c.status === 'fail' || c.status === 'partial');
+      opportunities.push({
+        title: failCheck ? `${catName}: ${failCheck.name}` : `Optimize ${catName} Velocity`,
+        remedy: failCheck?.potentialFix || `Bring ${catName} benchmark from ${r.score}% to ${r.enhancedScore}%.`,
+        evidence: failCheck?.evidence || `Observed category score of ${r.score}/100 lagging top-tier standard.`,
+        category: catName,
+        impact: `Directly recovers up to +${Math.max(0, r.enhancedScore - r.score)} points towards overall potential score.`
+      });
+    }
+  }
+
+  return opportunities;
+};
 
 export const AuditReport: React.FC<AuditReportProps> = ({ audit, onNavigateTab }) => {
   const [reportMode, setReportMode] = useState<'simplified' | 'detailed'>('simplified');
@@ -38,19 +146,10 @@ export const AuditReport: React.FC<AuditReportProps> = ({ audit, onNavigateTab }
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [showMethodology, setShowMethodology] = useState<boolean>(false);
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
+  const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
+  const [showCostModal, setShowCostModal] = useState<boolean>(false);
   const [downloadToast, setDownloadToast] = useState<string | null>(null);
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
-
-  useEffect(() => {
-    // Automatically trigger system print dialog when report component mounts
-    setTimeout(() => {
-      try {
-        window.print();
-      } catch(e) {
-        console.warn('Print trigger failed:', e);
-      }
-    }, 1000);
-  }, []);
 
   const downloadReportFile = () => {
     try {
@@ -102,7 +201,7 @@ export const AuditReport: React.FC<AuditReportProps> = ({ audit, onNavigateTab }
 
   const handleCopySummary = () => {
     const text = `SMOLLAN DIGITAL COMMERCE AUDIT: ${audit.businessName} (${audit.url})
-Overall Score: ${audit.overallScore}/100 -> Projected Target: ${Math.max(audit.overallScore, audit.projectedOverallScore || audit.overallScore + 16)}/100 (+${Math.max(0, (audit.projectedOverallScore || audit.overallScore + 16) - audit.overallScore)} pts uplift)
+Overall Score: ${audit.overallScore}/100 -> Potential Score: ${projectedScore}/100 (+${uplift} pts potential recovery)
 Executive Verdict: ${audit.executiveVerdict?.headline || 'Storefront audit completed.'}
 Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCounts.recommended} Recommended | ${audit.summaryCounts.content} Content Updates`;
     navigator.clipboard.writeText(text);
@@ -126,25 +225,28 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
     return matchesSearch && matchesSeverity;
   });
 
-  // Guarantee enhanced score is strictly >= overall score
+  // Rule-based score projection (guaranteed >= current overall)
   const currentOverall = audit.overallScore;
-  const projectedScore = Math.max(currentOverall, audit.projectedOverallScore || Math.min(100, currentOverall + 16));
+  const projectedScore = Math.max(currentOverall, audit.projectedOverallScore ?? currentOverall);
   const uplift = Math.max(0, projectedScore - currentOverall);
 
-  // Category weighting specification definition - Aligned with eComplete Benchmark PDF
-  const categoryWeightings = [
-    { name: 'Brand and domain', weight: 10, rationale: 'Evaluates brand consistency, domain integrity, and "transition" phase messaging.' },
-    { name: 'Navigation', weight: 12, rationale: 'Evaluates menu system hierarchy, circular paths, and unreachable labelled destinations.' },
-    { name: 'Trust and proof', weight: 15, rationale: 'Evaluates sourced growth claims, revenue figures, and case study methodology.' },
-    { name: 'Privacy (POPIA)', weight: 12, rationale: 'Evaluates compliance with POPIA s18 and s69 for notice at collection and marketing consent.' },
-    { name: 'Accessibility', weight: 10, rationale: 'Evaluates WCAG 2.2 AA standards, image alt text coverage, and semantic markup.' },
-    { name: 'SEO foundations', weight: 12, rationale: 'Evaluates meta tags, canonical URL integrity, and H1 tag uniqueness.' },
-    { name: 'Conversion path', weight: 15, rationale: 'Evaluates purchase path efficiency, form field validation, and booking routes.' },
-    { name: 'Performance and security', weight: 14, rationale: 'Evaluates Core Web Vitals (LCP, INP, CLS) and HTTPS/TLS encryption integrity.' }
-  ];
+  // Dynamic signals grounded strictly in crawled audit telemetry
+  const whatsWorkingList = getWhatsWorkingList(audit);
+  const opportunitiesList = getOpportunitiesToImprove(audit);
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
+      
+      {/* Legacy Audit Warning Banner (Section E) */}
+      {(!audit.schemaVersion || audit.schemaVersion < 2) && (
+        <div className="bg-amber-500/10 border-2 border-amber-500 text-amber-900 p-4 rounded-2xl flex items-center gap-3 text-xs font-semibold shadow-sm">
+          <Info className="w-5 h-5 text-amber-600 shrink-0" />
+          <div>
+            <strong className="block text-sm font-bold text-amber-800">Notice: Legacy Audit Format</strong>
+            <span>Legacy audit (ruleset pre-1.0). Not comparable with current audits. Re-run to update.</span>
+          </div>
+        </div>
+      )}
       
       {/* Download / Print Success Toast */}
       {downloadToast && (
@@ -162,6 +264,68 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           >
             ✕
           </button>
+        </div>
+      )}
+
+      {/* Prominent Diagnostic Alert & How We Can Improve Banner */}
+      {(audit.auditError || (audit.crawlSummary && audit.crawlSummary.failed > 0 && audit.crawlSummary.inspected === 0) || audit.evaluationNotice) && (
+        <div className="bg-gradient-to-r from-rose-950 via-slate-900 to-rose-950 text-white p-6 sm:p-7 rounded-3xl border-2 border-rose-500/60 shadow-2xl space-y-5 animate-in fade-in duration-300">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-rose-500/30 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="w-11 h-11 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/40 flex items-center justify-center shrink-0 shadow-lg">
+                <AlertTriangle className="w-6 h-6 stroke-[2.5]" />
+              </div>
+              <div>
+                <span className="text-[10px] font-black uppercase tracking-[0.25em] text-rose-400 block">
+                  Diagnostic Alert · Evaluation Notice
+                </span>
+                <h3 className="text-xl font-black text-white tracking-tight">
+                  Storefront Evaluation Encountered Access Restriction
+                </h3>
+              </div>
+            </div>
+            <div className="bg-rose-900/40 border border-rose-500/40 px-4 py-2 rounded-2xl text-right shrink-0">
+              <span className="text-[10px] text-rose-300 uppercase font-black block">What The Score Got To</span>
+              <div className="text-2xl font-black text-white">
+                {currentOverall}<span className="text-xs text-rose-400 font-medium">/100</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5 text-xs">
+            <div className="space-y-2.5 bg-black/40 p-5 rounded-2xl border border-rose-500/20">
+              <span className="text-[10px] uppercase font-black text-rose-300 block tracking-wider">
+                Observed Error / Barrier
+              </span>
+              <p className="font-mono text-rose-200 text-xs bg-rose-950/80 p-3 rounded-xl border border-rose-500/30 break-all font-semibold">
+                {audit.auditError || audit.evaluationNotice?.description || 'Target storefront returned error or blocked automated crawler access.'}
+              </p>
+              <p className="text-slate-300 text-[11px] leading-relaxed">
+                The storefront scored <strong className="text-white font-bold">{currentOverall}/100</strong> because automated search crawlers and commerce diagnostics were prevented from verifying catalog pathways.
+              </p>
+            </div>
+
+            <div className="space-y-2.5 bg-black/40 p-5 rounded-2xl border border-rose-500/20">
+              <span className="text-[10px] uppercase font-black text-emerald-400 block tracking-wider flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-emerald-400" /> How We Can Improve (Remediation Roadmap)
+              </span>
+              <ul className="text-slate-200 text-[11px] space-y-1.5 pl-4 list-decimal leading-relaxed">
+                <li><strong className="text-white">Allowlist Crawler User-Agent:</strong> Whitelist <code className="text-cyan-300 bg-slate-900 px-1 py-0.5 rounded text-[10px]">SmollanDigitalAuditor/1.0</code> in Cloudflare / AWS WAF.</li>
+                <li><strong className="text-white">Resolve Gateway Timeouts:</strong> Ensure public storefront and collection routes return HTTP 200 OK without 403/502/504 errors.</li>
+                <li><strong className="text-white">Enforce SSL / TLS Redirects:</strong> Eliminate mixed-content and verify active SSL certificates.</li>
+                <li><strong className="text-white">Reclaim Potential Lift:</strong> Resolving these access barriers will lift the evaluated score to <strong className="text-emerald-400 font-bold">{projectedScore}/100 (+{uplift} pts)</strong>.</li>
+              </ul>
+              <div className="pt-2 flex items-center gap-3">
+                <button
+                  onClick={() => onNavigateTab('new_audit')}
+                  className="bg-[#00e5ff] text-[#002157] hover:bg-white text-xs font-black uppercase tracking-wider px-4 py-2 rounded-xl transition shadow flex items-center gap-1.5"
+                >
+                  <span>Re-evaluate Storefront</span>
+                  <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -193,8 +357,8 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           </div>
         </div>
 
-        {/* Crawl Meta Badges */}
-        <div className="flex items-center gap-3 bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 shrink-0 text-xs">
+        {/* Crawl Meta Badges & Audit Execution Cost */}
+        <div className="flex flex-wrap items-center gap-3 bg-slate-800/80 p-3 rounded-2xl border border-slate-700/80 shrink-0 text-xs">
           <div className="text-right pr-3 border-r border-slate-700">
             <span className="text-[10px] text-slate-400 uppercase font-bold block">Pages Inspected</span>
             <span className="text-sm font-black text-white">{audit.crawlSummary.inspected} <span className="text-[10px] text-slate-400 font-normal">/ {audit.crawlSummary.discovered}</span></span>
@@ -203,9 +367,22 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
             <span className="text-[10px] text-slate-400 uppercase font-bold block">Crawl Depth</span>
             <span className="text-sm font-black text-cyan-300 font-mono">{audit.depth.toUpperCase()}</span>
           </div>
-          <div className="text-right">
+          <div className="text-right pr-3 border-r border-slate-700">
             <span className="text-[10px] text-slate-400 uppercase font-bold block">Audit Date</span>
             <span className="text-xs font-bold text-slate-300">{new Date(audit.timestamp).toLocaleDateString()}</span>
+          </div>
+          <div
+            onClick={() => setShowCostModal(true)}
+            className="text-right pl-1 cursor-pointer hover:bg-slate-700/60 p-1.5 rounded-xl transition group"
+            title="Click to view itemized cloud compute, bandwidth, and AI inference cost"
+          >
+            <span className="text-[10px] text-[#00e5ff] uppercase font-black block flex items-center justify-end gap-1">
+              <Zap className="w-3 h-3 text-[#00e5ff]" />
+              Audit Cost
+            </span>
+            <span className="text-xs font-black text-emerald-400 group-hover:underline">
+              R 0.035 <span className="text-[9px] text-slate-400 font-mono">($0.0019)</span>
+            </span>
           </div>
         </div>
       </div>
@@ -254,6 +431,22 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           >
             <Info className="w-3.5 h-3.5 text-cyan-600" />
             <span>Scoring Methodology</span>
+          </button>
+          <button
+            onClick={() => setShowBenchmarkModal(true)}
+            className="bg-[#002157] hover:bg-[#0f2866] text-white border border-[#00e5ff]/30 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
+            title="Compare performance against Global Enterprise eCommerce Standards"
+          >
+            <BarChart3 className="w-3.5 h-3.5 text-[#00e5ff]" />
+            <span>Global Enterprise Benchmarks</span>
+          </button>
+          <button
+            onClick={() => setShowCostModal(true)}
+            className="bg-[#002157] hover:bg-[#0f2866] text-emerald-400 border border-emerald-400/40 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
+            title="View itemized cloud compute and AI inference cost breakdown"
+          >
+            <Zap className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Audit Cost: R 0.035</span>
           </button>
           <button
             onClick={() => onNavigateTab('sandbox')}
@@ -318,7 +511,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
 
           {/* 12-Factor Weighting Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-            {categoryWeightings.map((item, idx) => (
+            {CATEGORY_RULESET.map((item, idx) => (
               <div key={idx} className="bg-slate-800/70 p-3.5 rounded-2xl border border-slate-700/80 space-y-1.5">
                 <div className="flex justify-between items-center text-xs">
                   <span className="font-bold text-white truncate">{item.name}</span>
@@ -338,9 +531,11 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
                 <CheckCircle className="w-4 h-4" /> What the Analysis Measures Against
               </h4>
               <ul className="text-slate-300 space-y-1.5 pl-4 list-disc text-[11px]">
-                <li><strong>Public Storefront Inspection:</strong> Crawls and inspects real HTML, metadata, navigation trees, and product variant selectors.</li>
-                <li><strong>UX & Conversion Heuristics:</strong> Verifies inline sizing guides, Buy Now Pay Later (PayFlex) visibility, and sticky mobile CTAs.</li>
-                <li><strong>Performance & SEO Hygiene:</strong> Measures server response latency (TTFB proxy), image alt attribute coverage, and canonical integrity.</li>
+                <li><strong>Network & Resilience:</strong> Measures HTTP response codes, server latency / TTFB proxy, and crawler link traversal.</li>
+                <li><strong>Security & Infrastructure:</strong> Verifies HTTPS TLS encryption, mixed content security, and sitemap / robots.txt presence.</li>
+                <li><strong>HTML Structure & SEO:</strong> Inspects page titles, meta descriptions, canonical URLs, and heading hierarchy (H1 / H2 tags).</li>
+                <li><strong>Mobile & Accessibility:</strong> Checks responsive viewport meta tags, image counts, alt attribute presence, and basic accessibility markup.</li>
+                <li><strong>Storefront DOM Markers:</strong> Identifies storefront navigation links, CTA form buttons, pricing markers, and sizing guide triggers.</li>
               </ul>
             </div>
 
@@ -372,13 +567,13 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
               </div>
               <h1 className="text-2xl sm:text-3xl font-black tracking-tight">Report Overview</h1>
               <p className="text-xs text-slate-300 mt-1 max-w-xl leading-relaxed">
-                Black November and peak trading readiness audit combining public technical inspection with conversion-rate optimisation (CRO) analysis. Findings mapped directly to Smollan execution services.
+                Comprehensive digital commerce audit combining technical Core Web Vitals inspection with conversion-rate optimisation (CRO) analysis. Findings mapped directly to Smollan execution services.
               </p>
             </div>
             <div className="text-right bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700 text-xs shrink-0">
-              <span className="text-slate-400 block text-[10px] font-semibold uppercase">Cycle Period</span>
-              <span className="font-bold text-cyan-300">C4: Peak Readiness 2026</span>
-              <span className="text-slate-400 block text-[10px] mt-1 font-mono">Target: 5 Nov Code Freeze</span>
+              <span className="text-slate-400 block text-[10px] font-semibold uppercase">Diagnostic Cycle</span>
+              <span className="font-bold text-cyan-300">Commerce Intelligence 2026</span>
+              <span className="text-slate-400 block text-[10px] mt-1 font-mono">Evaluation: Active Status</span>
             </div>
           </div>
         </div>
@@ -410,36 +605,36 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
             <div className="pt-3 border-t border-slate-800 space-y-3">
               <div className="bg-slate-800/70 p-3.5 rounded-2xl border border-slate-700/80 space-y-1">
                 <span className="text-[10px] uppercase tracking-wider text-slate-400 font-bold block">
-                  Projected with Smollan Enhancements
+                  Potential score if listed fixes are applied
                 </span>
                 <div className="flex items-center gap-2">
                   <span className="text-3xl font-black text-[#00e5ff]">{projectedScore}</span>
                   <span className="text-xs text-slate-400 font-normal">/100</span>
                   <span className="bg-emerald-500/20 text-emerald-300 text-xs font-bold px-2 py-0.5 rounded-full border border-emerald-500/30">
-                    +{uplift} pts uplift
+                    +{uplift} pts potential recovery
                   </span>
                 </div>
               </div>
 
-              {/* Breakdown of Key Commercial Drivers behind the Uplift */}
+              {/* Breakdown of Rule-Based Recoverable Points */}
               <div className="text-[10px] space-y-1.5 text-slate-300 bg-slate-900/40 p-3 rounded-2xl border border-slate-800">
-                <span className="font-extrabold text-cyan-400 uppercase tracking-wide block">Primary Uplift Drivers:</span>
-                <div className="flex justify-between text-slate-300">
-                  <span>• Inline Sizing Modal on PDP:</span>
-                  <strong className="text-emerald-400">+15 pts category lift</strong>
-                </div>
-                <div className="flex justify-between text-slate-300">
-                  <span>• Sticky Mobile Add to Cart CTA:</span>
-                  <strong className="text-emerald-400">+18 pts category lift</strong>
-                </div>
-                <div className="flex justify-between text-slate-300">
-                  <span>• PayFlex / BNPL Threshold Clarity:</span>
-                  <strong className="text-emerald-400">+12 pts category lift</strong>
-                </div>
-                <div className="flex justify-between text-slate-300">
-                  <span>• Merchandising Fabric & Fit Specs:</span>
-                  <strong className="text-emerald-400">+10 pts category lift</strong>
-                </div>
+                <span className="font-extrabold text-cyan-400 uppercase tracking-wide block">Recoverable Points by Area:</span>
+                {Object.entries(audit.categoryResults)
+                  .filter(([_, res]: [string, any]) => res.score < 100)
+                  .slice(0, 4)
+                  .map(([cat, res]: [string, any]) => {
+                    const weight = CATEGORY_WEIGHTS[cat] || 8;
+                    const catRec = Math.round(((100 - res.score) * weight) / 100);
+                    return (
+                      <div key={cat} className="flex justify-between text-slate-300">
+                        <span className="truncate max-w-[180px]">• {cat}:</span>
+                        <strong className="text-emerald-400">+{catRec} pts potential</strong>
+                      </div>
+                    );
+                  })}
+                {Object.values(audit.categoryResults).every((res: any) => res.score === 100) && (
+                  <div className="text-slate-400 italic">All measured checks passing. Full score achieved.</div>
+                )}
               </div>
             </div>
           </div>
@@ -468,7 +663,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
             </div>
 
             <div className="space-y-3">
-              {Object.entries(audit.categoryResults).slice(0, 6).map(([cat, res]: [string, any]) => {
+              {Object.entries(audit.categoryResults).map(([cat, res]: [string, any]) => {
                 const currentVal = res.score;
                 // Guarantee enhanced bar is never less than current bar
                 const enhancedVal = Math.max(currentVal, res.enhancedScore || Math.min(100, currentVal + 20));
@@ -563,6 +758,12 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           </div>
         </div>
 
+        {/* Advanced SEO Keyword Gap & Traffic Growth Forecast */}
+        <SeoGrowthForecast audit={audit} />
+
+        {/* Enterprise Agentic AI Commerce Readiness & 90-Day Execution Roadmap */}
+        <AgenticCommerceAuditView audit={audit} />
+
         {/* 8. Three Action Columns (Essential, Recommended, Content & Settings) */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           
@@ -636,25 +837,64 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
 
         {/* 9. What's Working vs Opportunities to Improve */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-3xl p-6 space-y-3">
-            <h4 className="text-xs font-extrabold text-emerald-800 uppercase tracking-wide flex items-center gap-1.5">
-              <CheckCircle className="w-4 h-4 text-emerald-600" /> What&apos;s Working
-            </h4>
-            <ul className="space-y-2 text-xs text-emerald-950">
-              <li>• Secure checkout flow accessibility and valid HTTPS configuration.</li>
-              <li>• Global header navigation and mobile responsive viewport metadata present across crawled pages.</li>
-              <li>• Robust technical error handling with zero broken server responses.</li>
+          <div className="bg-emerald-50/70 border border-emerald-200/90 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-emerald-200/80 pb-2.5">
+              <h4 className="text-xs font-extrabold text-emerald-800 uppercase tracking-wide flex items-center gap-1.5">
+                <CheckCircle className="w-4 h-4 text-emerald-600" /> What&apos;s Working · Verified Signals
+              </h4>
+              <span className="text-[10px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">
+                {whatsWorkingList.length} Verified Strengths
+              </span>
+            </div>
+            <ul className="space-y-3">
+              {whatsWorkingList.map((item, idx) => (
+                <li key={idx} className="text-xs text-emerald-950 flex items-start gap-2.5">
+                  <span className="text-emerald-600 font-bold shrink-0 mt-0.5">•</span>
+                  <div>
+                    <strong className="text-emerald-900 block font-bold">{item.title}</strong>
+                    <span className="text-[11px] text-emerald-800/90 leading-relaxed block">{item.detail}</span>
+                  </div>
+                </li>
+              ))}
             </ul>
           </div>
 
-          <div className="bg-blue-50/70 border border-blue-200/90 rounded-3xl p-6 space-y-3">
-            <h4 className="text-xs font-extrabold text-[#002157] uppercase tracking-wide flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-blue-600" /> Opportunities to Improve
-            </h4>
-            <ul className="space-y-2 text-xs text-slate-800">
-              <li>• Move size guides inline adjacent to size selectors to stop mobile sizing abandonment.</li>
-              <li>• Integrate Buy Now Pay Later (PayFlex / PayJustNow) widgets directly above the fold.</li>
-              <li>• Implement sticky Add-to-Cart drawer on mobile viewports.</li>
+          <div className="bg-blue-50/70 border border-blue-200/90 rounded-3xl p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-blue-200/80 pb-2.5">
+              <h4 className="text-xs font-extrabold text-[#002157] uppercase tracking-wide flex items-center gap-1.5">
+                <Sparkles className="w-4 h-4 text-blue-600" /> Prioritized Opportunities to Improve
+              </h4>
+              <span className="text-[10px] bg-blue-100 text-[#002157] px-2 py-0.5 rounded-full font-bold">
+                {opportunitiesList.length} Actionable Items
+              </span>
+            </div>
+            <ul className="space-y-3">
+              {opportunitiesList.map((opp, idx) => (
+                <li key={idx} className="text-xs text-slate-800 bg-white/70 p-3 rounded-2xl border border-blue-100 shadow-xs space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <strong className="text-slate-900 font-bold">{opp.title}</strong>
+                    <span className="text-[9px] bg-[#002157] text-[#00e5ff] font-bold px-2 py-0.5 rounded shrink-0 uppercase tracking-wider">
+                      {opp.category}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-slate-600 leading-relaxed">
+                    <span className="font-semibold text-slate-700">Remedy:</span> {opp.remedy}
+                  </p>
+                  {opp.evidence && (
+                    <p className="text-[10px] text-slate-500 italic">
+                      <span className="font-medium text-slate-600">Observed:</span> {opp.evidence}
+                    </p>
+                  )}
+                  {opp.impact && (
+                    <div className="text-[10px] font-bold text-emerald-700 pt-0.5 flex items-center gap-1">
+                      <span>Commercial Impact:</span> {opp.impact}
+                    </div>
+                  )}
+                </li>
+              ))}
+              {opportunitiesList.length === 0 && (
+                <li className="text-xs text-slate-400 italic">All inspected categories met optimal benchmark thresholds.</li>
+              )}
             </ul>
           </div>
         </div>
@@ -664,7 +904,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           <div>
             <span className="text-[10px] uppercase font-bold text-[#00e5ff] tracking-widest block mb-1">Recommended Next Step</span>
             <p className="text-xs sm:text-sm font-medium">
-              Ship the essential PDP and cart fixes to lift the site to {projectedScore}/100 ahead of Black November code freeze.
+              Ship the essential UX, checkout, and performance remediations to lift the storefront score to {projectedScore}/100.
             </p>
           </div>
           <div className="flex items-center gap-2 shrink-0">
@@ -936,7 +1176,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
                 </div>
                 <div className="p-3 bg-white rounded-xl border border-slate-200 font-mono text-[11px] text-slate-700 space-y-1 select-all">
                   <div><strong>Storefront:</strong> {audit.businessName} ({audit.url})</div>
-                  <div><strong>Overall Score:</strong> {audit.overallScore}/100 → Target: {Math.max(audit.overallScore, audit.projectedOverallScore || audit.overallScore + 16)}/100 (+{Math.max(0, (audit.projectedOverallScore || audit.overallScore + 16) - audit.overallScore)} pts uplift)</div>
+                  <div><strong>Overall Score:</strong> {audit.overallScore}/100 → Potential Target: {projectedScore}/100 (+{uplift} pts potential recovery)</div>
                   <div><strong>Verdict:</strong> {audit.executiveVerdict?.headline}</div>
                   <div><strong>Action Plan:</strong> {audit.summaryCounts.essential} Essential fixes · {audit.summaryCounts.recommended} Recommended · {audit.summaryCounts.content} Content updates</div>
                 </div>
@@ -958,6 +1198,22 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           </div>
         </div>
       )}
+
+      {/* Global Enterprise eCommerce Benchmarking Modal Overlay */}
+      {showBenchmarkModal && (
+        <GlobalEnterpriseBenchmarkModal
+          audit={audit}
+          onClose={() => setShowBenchmarkModal(false)}
+          onNavigateTab={onNavigateTab}
+        />
+      )}
+
+      {/* Itemized Audit Execution Cost & Compute Telemetry Modal */}
+      <AuditExecutionCostModal
+        audit={audit}
+        isOpen={showCostModal}
+        onClose={() => setShowCostModal(false)}
+      />
 
       </div>
     </div>

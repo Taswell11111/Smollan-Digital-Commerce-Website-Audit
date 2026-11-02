@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Mail, Copy, CheckCircle, ShieldAlert, Sparkles, Globe, ExternalLink, RefreshCw } from 'lucide-react';
 import { AuditRecord } from '../types';
+import { senderConfig } from '../config/sender';
 
 interface EmailPitchStudioProps {
   audit: AuditRecord;
@@ -22,7 +23,7 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
     const cta = pitchData?.callToAction ||
       `We would welcome the opportunity to share the full interactive report and enhancement prototype with your team. Would you be open to a brief 15-minute introductory call next week?`;
 
-    return `${salutation}\n\n${hookText}\n\nDuring our technical and UX evaluation of ${audit.url}, our commerce specialists identified key areas impacting customer experience and conversion rates:\n\n${evidenceList}\n\n${cta}\n\nKind regards,\nSmollan Digital Commerce Growth Team\nhttps://ecompletecommerce.co.za`;
+    return `${salutation}\n\n${hookText}\n\nDuring our technical and UX evaluation of ${audit.url}, our commerce specialists identified key areas impacting customer experience and conversion rates:\n\n${evidenceList}\n\n${cta}\n\nKind regards,\n${senderConfig.name}\n${senderConfig.company}`;
   };
 
   useEffect(() => {
@@ -30,6 +31,12 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
       try {
         setLoading(true);
         const topFindings = (audit.findings || []).slice(0, 3);
+        const categoryEntries = Object.entries(audit.categoryResults || {}).sort(
+          (a: any, b: any) => a[1].score - b[1].score
+        );
+        const weakestCategory = categoryEntries[0]?.[0] || 'Mobile Optimisation';
+        const strongestCategory = categoryEntries[categoryEntries.length - 1]?.[0] || 'Security & TLS';
+
         const res = await fetch('/api/pitch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -37,8 +44,8 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
             domain: audit.url,
             brandName: audit.businessName,
             overallScore: audit.overallScore,
-            weakestCategory: 'Product detail pages',
-            strongestCategory: 'Checkout',
+            weakestCategory,
+            strongestCategory,
             topFindings
           })
         });
@@ -47,7 +54,7 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
         setSelectedSubjectIndex(0);
 
         const initialHook = data.pitchOptions?.[0]?.hook || data.hook ||
-          `Following our comprehensive commercial and conversion-rate evaluation of ${audit.url}, our team identified high-leverage friction points where targeted UX interventions can rapidly unlock incremental sales ahead of peak trading.`;
+          `Following our comprehensive commercial and conversion-rate evaluation of ${audit.url}, our team identified high-leverage friction points where targeted UX and technical interventions can rapidly unlock incremental sales and performance gains.`;
         setBodyText(generateEmailBody(data, initialHook));
       } catch (e) {
         console.error('Failed to fetch pitch:', e);
@@ -68,7 +75,7 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
 
     const chosenOption = pitch.pitchOptions?.[index];
     const newHook = chosenOption?.hook || pitch.hook ||
-      `We recently conducted an evaluation of ${audit.businessName} to benchmark conversion readiness ahead of peak trading.`;
+      `We recently conducted an evaluation of ${audit.businessName} to benchmark conversion readiness and digital commerce performance.`;
 
     setBodyText(generateEmailBody(pitch, newHook));
   };
@@ -80,7 +87,8 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
   const currentAngle = pitch?.pitchOptions?.[selectedSubjectIndex]?.angle || 'Strategic Commercial Opportunity';
 
   const handleCopy = () => {
-    navigator.clipboard.writeText(`Subject: ${currentSubject}\n\n${bodyText}`);
+    const footerText = `\n\n---\n${senderConfig.name} | ${senderConfig.company}\n${senderConfig.contactReason}\n${senderConfig.optOutNotice}`;
+    navigator.clipboard.writeText(`Subject: ${currentSubject}\n\n${bodyText}${footerText}`);
     setCopied(true);
     setTimeout(() => setCopied(false), 2500);
   };
@@ -244,6 +252,23 @@ export const EmailPitchStudio: React.FC<EmailPitchStudioProps> = ({ audit }) => 
             onChange={(e) => setBodyText(e.target.value)}
             className="w-full text-xs font-mono p-4 sm:p-5 border border-slate-200 rounded-2xl bg-slate-50 text-slate-800 focus:ring-2 focus:ring-cyan-500 focus:outline-none leading-relaxed"
           />
+
+          {/* Mandatory Compliance Footer (Appended to all outreach; uneditable) */}
+          <div className="bg-slate-100 p-4 rounded-2xl border border-slate-200 text-xs text-slate-600 space-y-1 select-none">
+            <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-slate-400 pb-1 border-b border-slate-200">
+              <span>Mandatory Sender Identification & Compliance Footer</span>
+              <span className="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">Fixed Footer</span>
+            </div>
+            <div className="font-bold text-slate-800 pt-1">
+              {senderConfig.name} — {senderConfig.company}
+            </div>
+            <p className="text-[11px] text-slate-600">
+              {senderConfig.contactReason}
+            </p>
+            <p className="text-[11px] font-mono font-bold text-cyan-800 pt-1">
+              {senderConfig.optOutNotice}
+            </p>
+          </div>
         </div>
 
         {/* Discovery Questions Cheat Sheet for the Business Development Rep */}

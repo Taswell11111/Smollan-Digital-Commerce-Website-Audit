@@ -81,9 +81,16 @@ export const FindingsExplorer: React.FC<FindingsExplorerProps> = ({ audit, onNav
                 <h3 className="text-base font-bold text-slate-900 mt-2">{f.title}</h3>
                 <span className="text-xs text-slate-500">{f.category}</span>
               </div>
-              <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
-                {f.id || `FND-0${idx + 1}`}
-              </span>
+              <div className="flex flex-col items-end gap-1">
+                <span className="text-xs font-mono font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded">
+                  {f.id || `MSR-${idx + 1}`}
+                </span>
+                <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded uppercase border ${
+                  f.source === 'ai' ? 'bg-purple-50 text-purple-700 border-purple-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                }`}>
+                  {f.source === 'ai' ? 'AI Narrative' : 'Measured'}
+                </span>
+              </div>
             </div>
 
             <div className="text-xs space-y-2 bg-slate-50 p-3.5 rounded-lg border border-slate-100 font-mono">

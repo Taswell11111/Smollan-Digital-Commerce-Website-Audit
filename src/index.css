@@ -13,21 +13,40 @@
   --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --theme-font-heading: 'Plus Jakarta Sans', sans-serif;
   --theme-header-bg: #002157;
-  --theme-header-border: rgba(0, 229, 255, 0.3);
-  --theme-page-bg: #ffffff;
+  --theme-header-border: rgba(0, 229, 255, 0.25);
+  --theme-page-bg: #f8fafc;
   --theme-page-text: #002157;
-  --theme-accent: #00e5ff;
-  --theme-accent-hover: #00c6d4;
-  --theme-accent-text: #002157;
+  --theme-accent: #002157;
+  --theme-accent-hover: #00173d;
+  --theme-accent-text: #ffffff;
   --theme-highlight: #00e5ff;
-  --theme-radius-card: 12px;
-  --theme-radius-btn: 8px;
+  --theme-radius-card: 14px;
+  --theme-radius-btn: 10px;
   --theme-card-border: #e2e8f0;
-  --theme-badge-bg: rgba(0, 229, 255, 0.1);
+  --theme-badge-bg: rgba(0, 33, 87, 0.08);
   --theme-badge-text: #002157;
 }
 
-/* 1. Sharp Modern & Contemporary (Default Flagship contemporary theme) */
+/* 1. Smollan Corporate Navy & Cyan (Default Flagship Brand Theme) */
+[data-theme="navy-cyan"] {
+  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --theme-font-heading: 'Plus Jakarta Sans', sans-serif;
+  --theme-header-bg: #002157;
+  --theme-header-border: rgba(0, 229, 255, 0.25);
+  --theme-page-bg: #f8fafc;
+  --theme-page-text: #002157;
+  --theme-accent: #002157;
+  --theme-accent-hover: #00173d;
+  --theme-accent-text: #ffffff;
+  --theme-highlight: #00e5ff;
+  --theme-radius-card: 14px;
+  --theme-radius-btn: 10px;
+  --theme-card-border: #e2e8f0;
+  --theme-badge-bg: rgba(0, 33, 87, 0.08);
+  --theme-badge-text: #002157;
+}
+
+/* 2. Sharp Modern & Contemporary */
 [data-theme="sharp-modern"] {
   --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
   --theme-font-heading: 'Space Grotesk', 'Plus Jakarta Sans', sans-serif;
@@ -39,30 +58,11 @@
   --theme-accent-hover: #00c6d4;
   --theme-accent-text: #040810;
   --theme-highlight: #10b981;
-  --theme-radius-card: 4px;
-  --theme-radius-btn: 4px;
+  --theme-radius-card: 6px;
+  --theme-radius-btn: 6px;
   --theme-card-border: #cbd5e1;
   --theme-badge-bg: rgba(0, 242, 254, 0.15);
   --theme-badge-text: #0284c7;
-}
-
-/* 2. Smollan Executive Navy & Cyan */
-[data-theme="navy-cyan"] {
-  --theme-font-body: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --theme-font-heading: 'Plus Jakarta Sans', sans-serif;
-  --theme-header-bg: #002157;
-  --theme-header-border: rgba(0, 229, 255, 0.3);
-  --theme-page-bg: #ffffff;
-  --theme-page-text: #002157;
-  --theme-accent: #00e5ff;
-  --theme-accent-hover: #00c6d4;
-  --theme-accent-text: #002157;
-  --theme-highlight: #00e5ff;
-  --theme-radius-card: 12px;
-  --theme-radius-btn: 8px;
-  --theme-card-border: #e2e8f0;
-  --theme-badge-bg: rgba(0, 229, 255, 0.1);
-  --theme-badge-text: #002157;
 }
 
 /* 3. Luxury Obsidian & Editorial Gold */
@@ -110,11 +110,6 @@ html {
   color: var(--theme-page-text);
 }
 
-@keyframes sparkleMove {
-  0% { background-position: 0% 0%, 0% 0%, 0% 0%; }
-  100% { background-position: 100% 100%, -100% 100%, 50% -50%; }
-}
-
 body {
   font-family: var(--theme-font-body);
   background-color: var(--theme-page-bg);
@@ -123,14 +118,6 @@ body {
   min-height: 100vh;
   position: relative;
   overflow-x: hidden;
-  
-  /* Ambient Blue Sparkle Effect */
-  background-image: 
-    radial-gradient(circle at 2px 2px, rgba(0, 229, 255, 0.05) 1px, transparent 0),
-    radial-gradient(circle at 4px 4px, rgba(0, 33, 87, 0.03) 1px, transparent 0),
-    radial-gradient(circle at 6px 6px, rgba(0, 229, 255, 0.04) 1px, transparent 0);
-  background-size: 100px 100px, 150px 150px, 250px 250px;
-  animation: sparkleMove 120s linear infinite;
 }
 
 /* Heading Typography Override across the app */

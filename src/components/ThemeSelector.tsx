@@ -19,6 +19,19 @@ export interface ThemeConfig {
 
 export const THEME_OPTIONS: ThemeConfig[] = [
   {
+    id: 'navy-cyan',
+    name: 'Smollan Executive Navy & Cyan',
+    tagline: 'Smollan Brand Standard · Enterprise Connected Commerce Intelligence',
+    fontDisplay: 'Plus Jakarta Sans',
+    fontBody: 'Plus Jakarta Sans',
+    fontPreviewText: 'Aa Smollan Connected Commerce',
+    primaryColor: '#002157',
+    accentColor: '#002157',
+    highlightColor: '#00e5ff',
+    badge: 'Brand Standard',
+    characteristics: 'Smollan signature navy (#002157), crisp enterprise cards & electric process cyan (#00e5ff)'
+  },
+  {
     id: 'sharp-modern',
     name: 'Sharp Modern & Contemporary',
     tagline: 'Architectural Precision & High-Impact Contemporary Typography',
@@ -29,20 +42,7 @@ export const THEME_OPTIONS: ThemeConfig[] = [
     accentColor: '#00f2fe',
     highlightColor: '#10b981',
     badge: 'Sharp Contemporary',
-    characteristics: 'Razor-sharp 4px geometry, high-contrast obsidian & hyper-cyan'
-  },
-  {
-    id: 'navy-cyan',
-    name: 'Smollan Executive Navy & Cyan',
-    tagline: 'Corporate Commerce Intelligence & Clean Enterprise Contrast',
-    fontDisplay: 'Plus Jakarta Sans',
-    fontBody: 'Plus Jakarta Sans',
-    fontPreviewText: 'Aa Smollan Enterprise UI',
-    primaryColor: '#07162c',
-    accentColor: '#00e5ff',
-    highlightColor: '#10b981',
-    badge: 'Corporate Standard',
-    characteristics: 'Smollan signature navy, balanced 14px modern radii'
+    characteristics: 'Razor-sharp 6px geometry, high-contrast obsidian & hyper-cyan'
   },
   {
     id: 'luxury-gold',
