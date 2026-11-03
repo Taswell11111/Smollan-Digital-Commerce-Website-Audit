@@ -46,6 +46,9 @@ export interface InspectedPage {
   missingAltCount: number;
   buttons: string[];
   hasPrice: boolean;
+  hasStock?: boolean;
+  hasAddToCart?: boolean;
+  evidenceSources?: string[];
   hasSizeGuide: boolean;
   hasCanonical: boolean;
   hasMetaViewport: boolean;

@@ -21,7 +21,10 @@ export interface ScoringInput {
     navLinksCount?: number;
     imagesCount: number;
     missingAltCount: number;
-    hasPrice: boolean;
+    hasPrice?: boolean;
+    hasStock?: boolean;
+    hasAddToCart?: boolean;
+    evidenceSources?: string[];
     hasSizeGuide?: boolean;
     hasCanonical: boolean;
     hasMetaViewport: boolean;
@@ -39,6 +42,21 @@ export interface ScoringInput {
   homepageReachable?: boolean;
   homepageFailReason?: string;
   workerResults?: Record<string, any>;
+  renderedProductEvidence?: Array<{
+    url: string;
+    source: string;
+    sourceUrl?: string;
+    isProductPage: boolean;
+    hasPrice: boolean;
+    hasStock: boolean;
+    hasAddToCart: boolean;
+  }>;
+  unavailableProductEvidenceUrls?: string[];
+  renderedFallback?: {
+    status: 'not_needed' | 'measured' | 'unavailable';
+    attemptedUrls: string[];
+    reason?: string;
+  };
 }
 
 export interface ScoringOutput {
@@ -74,10 +92,17 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     trustMarkersCount = 0,
     homepageReachable = true,
     homepageFailReason,
-    workerResults = {}
+    workerResults = {},
+    renderedProductEvidence = [],
+    unavailableProductEvidenceUrls = [],
+    renderedFallback
   } = input;
 
   const measurements: Record<string, any> = {};
+  if (renderedFallback) {
+    measurements.firecrawlFallback = renderedFallback;
+  }
+
   const categoryResults: Record<string, CategoryResult> = {};
   const fixList: Array<{
     checkId: string;
@@ -87,6 +112,63 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     recoverablePoints: number;
     potentialFix: string;
   }> = [];
+
+  const productEvidenceByUrl = new Map<string, {
+    url: string;
+    hasPrice?: boolean;
+    hasStock?: boolean;
+    hasAddToCart?: boolean;
+    sources: string[];
+  }>();
+
+  const evidenceKey = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  };
+
+  pagesInspected.filter(page => page.pageType === 'product').forEach(page => {
+    const key = evidenceKey(page.url);
+    productEvidenceByUrl.set(key, {
+      url: page.url,
+      hasPrice: page.hasPrice,
+      hasStock: page.hasStock,
+      hasAddToCart: page.hasAddToCart ?? (Array.isArray(page.buttons) && page.buttons.length > 0),
+      sources: page.evidenceSources?.length ? [...page.evidenceSources] : ['direct_html']
+    });
+  });
+
+  renderedProductEvidence.filter(page => page.isProductPage).forEach(page => {
+    const key = evidenceKey(page.url);
+    const existing = productEvidenceByUrl.get(key);
+    if (existing) {
+      existing.hasPrice = existing.hasPrice === true || page.hasPrice;
+      existing.hasStock = existing.hasStock === true || page.hasStock;
+      existing.hasAddToCart = existing.hasAddToCart === true || page.hasAddToCart;
+      if (!existing.sources.includes(page.source)) existing.sources.push(page.source);
+    } else {
+      productEvidenceByUrl.set(key, {
+        url: page.url,
+        hasPrice: page.hasPrice,
+        hasStock: page.hasStock,
+        hasAddToCart: page.hasAddToCart,
+        sources: [page.source]
+      });
+    }
+  });
+
+  const productPages = Array.from(productEvidenceByUrl.values());
+  const evidenceIsUnavailable = (field: 'hasPrice' | 'hasStock' | 'hasAddToCart') =>
+    productPages.some(page =>
+      unavailableProductEvidenceUrls.some(url => evidenceKey(url) === evidenceKey(page.url)) &&
+      page[field] !== true
+    );
+  const firecrawlUsed = productPages.some(page => page.sources.includes('Firecrawl'));
 
   // Check if homepage is unreachable -> failed audit
   const homeFailed = !homepageReachable || (pagesInspected.length === 0 && failedPages.length > 0);
@@ -301,70 +383,88 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
         }
         case 'CHK-PROD-PRICE': {
-          const productPages = pagesInspected.filter(p => p.pageType === 'product');
-          const withPrice = productPages.filter(p => p.hasPrice).length;
+          const withPrice = productPages.filter(p => p.hasPrice === true).length;
+          const renderedSuffix = firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : '';
           measurements.productPagesCount = productPages.length;
           measurements.productPagesWithPrice = withPrice;
+          measurements.renderedProductEvidence = renderedProductEvidence;
+
           if (productPages.length === 0) {
             checkStatus = 'not_measured';
-            evidence = 'No dedicated product pages crawled; pricing check unmeasured for product templates.';
+            evidence = 'Product pricing not measured: no product page was inspected.';
+          } else if (evidenceIsUnavailable('hasPrice')) {
+            checkStatus = 'not_measured';
+            evidence = 'Product pricing not measured because the rendered-page fallback was unavailable.';
           } else if (withPrice === productPages.length) {
             checkStatus = 'pass';
             checkScore = 100;
-            evidence = `Formatted prices verified on all ${withPrice} product pages.`;
+            evidence = `Formatted prices verified on all ${withPrice} product pages${firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : ''}.`;
           } else if (withPrice > 0) {
             checkStatus = 'partial';
             checkScore = 65;
-            evidence = `Prices found on ${withPrice} of ${productPages.length} product pages.`;
+            evidence = `Prices found on ${withPrice} of ${productPages.length} product pages${renderedSuffix}.`;
           } else {
             checkStatus = 'fail';
             checkScore = 30;
-            evidence = `0 of ${productPages.length} product pages had visible formatted prices.`;
+            evidence = `0 of ${productPages.length} product pages had visible formatted prices${renderedSuffix}.`;
           }
           break;
         }
         case 'CHK-PROD-STOCK': {
           const stockRes = workerResults['CHK-PROD-STOCK'];
-          const productPages = pagesInspected.filter(p => p.pageType === 'product');
           if (stockRes && stockRes.status === 'measured') {
             checkStatus = stockRes.score >= 80 ? 'pass' : stockRes.score >= 50 ? 'partial' : 'fail';
             checkScore = stockRes.score;
             evidence = stockRes.evidence || 'Stock availability evaluated in browser worker.';
-          } else if (productPages.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `Stock availability indicator verified across ${productPages.length} inspected product page(s).`;
-          } else if (pagesInspected.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 85;
-            evidence = 'Stock availability indicators detected on storefront listings.';
           } else {
-            checkStatus = 'not_measured';
-            evidence = 'Stock availability check not measured (no page content crawled).';
+            const withStock = productPages.filter(page => page.hasStock === true).length;
+            const renderedSuffix = firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : '';
+            measurements.productPagesWithStock = withStock;
+
+            if (productPages.length === 0) {
+              checkStatus = 'not_measured';
+              evidence = 'Product availability not measured: no product page was inspected.';
+            } else if (evidenceIsUnavailable('hasStock')) {
+              checkStatus = 'not_measured';
+              evidence = 'Product availability not measured because the rendered-page fallback was unavailable.';
+            } else if (withStock === productPages.length) {
+              checkStatus = 'pass';
+              checkScore = 100;
+              evidence = `Availability messages verified on all ${withStock} product pages${firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : ''}.`;
+            } else {
+              checkStatus = withStock > 0 ? 'partial' : 'fail';
+              checkScore = withStock > 0 ? 65 : 30;
+              evidence = `Availability messages found on ${withStock} of ${productPages.length} product pages${renderedSuffix}.`;
+            }
           }
           break;
         }
         case 'CHK-PROD-ATCVIEW': {
           const atcRes = workerResults['CHK-PROD-ATCVIEW'];
-          const productPages = pagesInspected.filter(p => p.pageType === 'product');
           if (atcRes && atcRes.status === 'measured') {
             checkStatus = atcRes.score >= 80 ? 'pass' : atcRes.score >= 50 ? 'partial' : 'fail';
             checkScore = atcRes.score;
             evidence = atcRes.evidence || 'Add-to-cart positioning evaluated in browser worker.';
-          } else if (productPages.length > 0) {
-            const withButtons = productPages.filter(p => Array.isArray(p.buttons) && p.buttons.length > 0);
-            if (withButtons.length > 0) {
+          } else {
+            const withAddToCart = productPages.filter(page => page.hasAddToCart === true).length;
+            const renderedSuffix = firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : '';
+            measurements.productPagesWithAddToCart = withAddToCart;
+
+            if (productPages.length === 0) {
+              checkStatus = 'not_measured';
+              evidence = 'Add-to-cart control not measured: no product page was inspected.';
+            } else if (evidenceIsUnavailable('hasAddToCart')) {
+              checkStatus = 'not_measured';
+              evidence = 'Add-to-cart control not measured because the rendered-page fallback was unavailable.';
+            } else if (withAddToCart === productPages.length) {
               checkStatus = 'pass';
               checkScore = 100;
-              evidence = `Add-to-cart / primary CTA button detected on ${withButtons.length} product page(s).`;
+              evidence = `Add-to-cart controls verified on all ${withAddToCart} product pages${firecrawlUsed ? ' (Firecrawl-rendered evidence included)' : ''}.`;
             } else {
-              checkStatus = 'partial';
-              checkScore = 60;
-              evidence = `Product pages inspected, but CTA button placement above the fold requires browser verification.`;
+              checkStatus = withAddToCart > 0 ? 'partial' : 'fail';
+              checkScore = withAddToCart > 0 ? 65 : 30;
+              evidence = `Add-to-cart controls found on ${withAddToCart} of ${productPages.length} product pages${renderedSuffix}.`;
             }
-          } else {
-            checkStatus = 'not_measured';
-            evidence = 'Add-to-cart button placement not measured (no product pages crawled).';
           }
           break;
         }

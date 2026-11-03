@@ -50,6 +50,8 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     imagesCount: 5,
     missingAltCount: 0,
     hasPrice: true,
+    hasStock: true,
+    hasAddToCart: true,
     buttons: ['Add to Cart', 'Buy Now'],
     hasCanonical: true,
     hasMetaViewport: true

@@ -14,6 +14,8 @@ import { senderConfig } from './src/config/sender.ts';
 import { calculateScores } from './src/utils/scoring.ts';
 import { CATEGORY_RULESET, CATEGORY_WEIGHTS, RULESET_VERSION, SCHEMA_VERSION } from './src/config/ruleset.ts';
 import { callBrowserWorker } from './server/workerClient.ts';
+import { parseCrawlerHtml } from './src/utils/crawlerHtml.ts';
+import { collectRenderedProductEvidence, extractProductSignals } from './src/utils/firecrawl.ts';
 
 const app = express();
 app.set('trust proxy', 1);
@@ -83,6 +85,52 @@ function getAI() {
     });
   }
   return cachedAI;
+}
+
+async function scrapeRenderedPageWithFirecrawl(url: string, timeoutMs: number) {
+  const boundedTimeout = Math.max(1, Math.min(timeoutMs, 7_000));
+  const firecrawlKey = process.env.FIRECRAWL_API_KEY || '';
+
+  if (firecrawlKey) {
+    try {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), boundedTimeout);
+      const res = await safeFetch('https://api.firecrawl.dev/v1/scrape', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${firecrawlKey}`
+        },
+        body: JSON.stringify({
+          url,
+          formats: ['html'],
+          onlyMainContent: false,
+          waitFor: Math.min(1_500, boundedTimeout),
+          timeout: boundedTimeout
+        }),
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      if (res.res.ok) {
+        const text = await readResponseBodyWithLimit(res.res, 3 * 1024 * 1024);
+        const payload = JSON.parse(text || '{}');
+        const data = payload?.data ?? payload;
+        if (typeof data?.html === 'string' && data.html.length > 0) {
+          return {
+            html: data.html,
+            sourceUrl: data?.metadata?.sourceURL || data?.metadata?.url || data?.sourceURL || data?.url
+          };
+        }
+      }
+    } catch {
+      // Fallback to direct fetch below
+    }
+  }
+
+  // Google AI Studio aligned DOM scraper fallback
+  const fetchRes = await safeFetch(url, { maxRedirects: 4 });
+  const html = await readResponseBodyWithLimit(fetchRes.res, 2 * 1024 * 1024);
+  return { html, sourceUrl: fetchRes.finalUrl };
 }
 
 // Storage directory setup
@@ -248,6 +296,7 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
   const queue: string[] = [targetUrl];
   const pagesInspected: any[] = [];
   const failedPages: any[] = [];
+  const productCandidateUrls = new Set<string>();
 
   const baseParsed = new URL(targetUrl);
   const normalizeHost = (h: string) => h.replace(/^www\./i, '').toLowerCase();
@@ -330,12 +379,8 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       const downloadTimeMs = Date.now() - downloadStart;
       const loadTimeMs = ttfbMs + downloadTimeMs;
 
-      const $ = cheerio.load(html);
-
-      // Clean visible text by stripping <script>, <style>, <noscript>
-      const $clean = cheerio.load(html);
-      $clean('script, style, noscript').remove();
-      const visibleText = $clean('body').text();
+      const { $, $clean, visibleText, bodyText } = parseCrawlerHtml(html);
+      const productSignals = extractProductSignals($clean, visibleText, currentUrl);
 
       // Extract metadata
       const title = $('title').text().trim() || 'Untitled Page';
@@ -346,7 +391,6 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       // Classify page type (improved robustness)
       let pageType = 'content';
       const pathLower = new URL(currentUrl).pathname.toLowerCase();
-      const bodyText = visibleText.toLowerCase();
       const htmlLower = html.toLowerCase();
 
       if (pathLower === '/' || pathLower === '') {
@@ -382,9 +426,7 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
 
       const buttons = $('button, a.btn, input[type="submit"]').map((_, el) => $(el).text().trim()).get().filter(Boolean);
 
-      // Product pricing: currency symbol followed by digits with decimal or thousands format
-      const priceRegex = /(?:R|\$|€|£)\s?\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?|(?:\bZAR\b|\bUSD\b|\bEUR\b|\bGBP\b)\s?\d{1,3}(?:[,\s]\d{3})*(?:\.\d{2})?/i;
-      const hasPrice = priceRegex.test(visibleText);
+      const hasPrice = productSignals.hasPrice;
 
       // Size guide: visible text (strip <script>/<style>) requiring link or heading with "size guide" or "size chart"
       const sizeGuideRegex = /size\s*guide|size\s*chart/i;
@@ -449,6 +491,10 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
             if (isSameDomain && !visited.has(resolvedStr) && !queue.includes(resolvedStr)) {
               // Prioritize header navigation tabs, category menus, and top-level links
               const isNav = $(el).parents('nav, header, [role="navigation"], .menu, .nav, .navigation, .site-header, #menu, #nav').length > 0;
+              const productPath = /(?:^|\/)(?:products?|items?|p|sku-[^/]+|dp)(?:\/|$)/i.test(resolved.pathname);
+              const productContainer = $(el).closest('[class*="product"], [data-product-id], [itemtype*="Product"]').length > 0;
+              if (productPath || productContainer) productCandidateUrls.add(resolvedStr);
+
               if (isNav) {
                 navLinks.push(resolvedStr);
               } else {
@@ -487,6 +533,9 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
         missingAltCount,
         buttons: buttons.slice(0, 10),
         hasPrice,
+        hasStock: productSignals.hasStock,
+        hasAddToCart: productSignals.hasAddToCart,
+        evidenceSources: ['direct_html'],
         hasSizeGuide,
         hasCanonical,
         hasMetaViewport,
@@ -507,10 +556,57 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
     }
   }
 
+  // Collect rendered product evidence fallback if direct HTML missed required signals
+  const renderedFallback = await collectRenderedProductEvidence({
+    targetUrl,
+    pagesInspected,
+    productCandidateUrls: Array.from(productCandidateUrls),
+    scrapePage: scrapeRenderedPageWithFirecrawl
+  });
+
+  for (const renderedPage of renderedFallback.evidence) {
+    const inspectedPage = pagesInspected.find((page: any) => {
+      try {
+        const direct = new URL(page.url);
+        const rendered = new URL(renderedPage.url);
+        direct.hash = '';
+        rendered.hash = '';
+        if (direct.pathname.length > 1) direct.pathname = direct.pathname.replace(/\/+$/, '');
+        if (rendered.pathname.length > 1) rendered.pathname = rendered.pathname.replace(/\/+$/, '');
+        return direct.toString() === rendered.toString();
+      } catch {
+        return page.url === renderedPage.url;
+      }
+    });
+    if (inspectedPage) {
+      inspectedPage.hasPrice = inspectedPage.hasPrice || renderedPage.hasPrice;
+      inspectedPage.hasStock = inspectedPage.hasStock || renderedPage.hasStock;
+      inspectedPage.hasAddToCart = inspectedPage.hasAddToCart || renderedPage.hasAddToCart;
+      inspectedPage.evidenceSources = Array.from(new Set([...(inspectedPage.evidenceSources || ['direct_html']), 'Firecrawl']));
+    }
+  }
+
+  if (auditId) {
+    if (renderedFallback.status === 'not_needed') {
+      logAudit(auditId, 'Rendered product evidence fallback skipped: direct HTML contained required product signals.');
+    } else if (renderedFallback.status === 'unavailable') {
+      logAudit(auditId, `Rendered product evidence fallback unavailable: ${renderedFallback.reason || 'no response'}`);
+    } else {
+      logAudit(auditId, `Rendered ${renderedFallback.attemptedUrls.length} page(s); measured product evidence: ${renderedFallback.evidence.length}.`);
+    }
+  }
+
   return {
     pagesInspected,
     failedPages,
     pagesDiscoveredCount: visited.size,
+    renderedProductEvidence: renderedFallback.evidence,
+    unavailableProductEvidenceUrls: renderedFallback.unavailableUrls,
+    renderedFallback: {
+      status: renderedFallback.status,
+      attemptedUrls: renderedFallback.attemptedUrls,
+      ...(renderedFallback.reason ? { reason: renderedFallback.reason } : {})
+    },
     tlsInfo: {
       isHttps: finalUrlIsHttps,
       validCert: validCertHandshake,
@@ -819,7 +915,13 @@ app.post('/api/discover-pages', inspectLimiter, async (req: Request, res: Respon
 });
 
 // Deterministic Measured Findings Builder - zero invented or mock findings
-function buildMeasuredFindings(pagesInspected: any[], failedPages: any[], targetUrl: string): any[] {
+function buildMeasuredFindings(
+  pagesInspected: any[],
+  failedPages: any[],
+  targetUrl: string,
+  renderedProductEvidence: any[] = [],
+  unavailableProductEvidenceUrls: string[] = []
+): any[] {
   const findings: any[] = [];
   let idCounter = 1;
 
@@ -908,7 +1010,6 @@ function buildMeasuredFindings(pagesInspected: any[], failedPages: any[], target
   // 5. Product Page missing Sizing Guide (only flagged for retail products with prices and sizing variants)
   const productsMissingSize = pagesInspected.filter(p => {
     if (p.pageType !== 'product' || p.hasSizeGuide) return false;
-    // Only flag if page actually exhibits retail pricing and apparel/sizing indicators
     return p.hasPrice && /(?:select\s*size|size:|sizing|shoes|footwear|apparel|clothing|dress|shirt|pants|jacket|uk\s*\d|eu\s*\d|\bsmall\b|\bmedium\b|\blarge\b|\bxs\b|\bxl\b|\bxxl\b)/i.test((p.title || '') + ' ' + (p.description || '') + ' ' + (p.url || ''));
   });
   for (const page of productsMissingSize) {
@@ -928,23 +1029,95 @@ function buildMeasuredFindings(pagesInspected: any[], failedPages: any[], target
     });
   }
 
-  // 6. Product Page missing Pricing Data
-  const productsMissingPrice = pagesInspected.filter(p => p.pageType === 'product' && !p.hasPrice);
-  for (const page of productsMissingPrice) {
-    findings.push({
-      id: nextId(),
-      title: 'Product pricing data not visible to crawler',
-      category: 'Product Merchandising',
-      affectedUrl: page.url,
-      observedEvidence: 'No currency or price pattern detected in page HTML',
-      businessImpact: 'Shoppers and search crawlers cannot determine item price directly from HTML.',
-      severity: 'Essential',
-      confidence: 'High',
-      effort: 'medium',
-      proposedRemedy: 'Ensure server-rendered pricing elements with structured Product schema.',
-      serviceLine: 'Product Catalogue & Merchandising Management',
-      source: 'measured'
+  // 6. Product price, availability, and purchase controls from direct or rendered evidence
+  const evidenceUrlKey = (url: string) => {
+    try {
+      const parsed = new URL(url);
+      parsed.hash = '';
+      if (parsed.pathname.length > 1) parsed.pathname = parsed.pathname.replace(/\/+$/, '');
+      return parsed.toString();
+    } catch {
+      return url;
+    }
+  };
+
+  const productEvidenceMap = new Map<string, any>();
+  pagesInspected.filter(page => page.pageType === 'product').forEach(page => {
+    productEvidenceMap.set(evidenceUrlKey(page.url), {
+      ...page,
+      sources: page.evidenceSources?.length ? [...page.evidenceSources] : ['direct_html']
     });
+  });
+
+  renderedProductEvidence.filter(page => page.isProductPage).forEach(page => {
+    const key = evidenceUrlKey(page.url);
+    const existing = productEvidenceMap.get(key);
+    if (existing) {
+      existing.hasPrice = existing.hasPrice === true || page.hasPrice;
+      existing.hasStock = existing.hasStock === true || page.hasStock;
+      existing.hasAddToCart = existing.hasAddToCart === true || page.hasAddToCart;
+      if (!existing.sources.includes(page.source)) existing.sources.push(page.source);
+    } else {
+      productEvidenceMap.set(key, { ...page, sources: [page.source] });
+    }
+  });
+
+  const unavailableKeys = new Set(unavailableProductEvidenceUrls.map(evidenceUrlKey));
+
+  for (const page of productEvidenceMap.values()) {
+    if (unavailableKeys.has(evidenceUrlKey(page.url))) continue;
+    const sourceName = page.sources.includes('Firecrawl') ? 'Firecrawl-rendered HTML' : 'direct HTML';
+
+    if (page.hasPrice === false) {
+      findings.push({
+        id: nextId(),
+        title: 'Product pricing data not visible to crawler',
+        category: 'Product Merchandising',
+        affectedUrl: page.url,
+        observedEvidence: `No currency or price pattern detected in ${sourceName}.`,
+        businessImpact: 'Shoppers and search crawlers cannot determine item price directly from HTML.',
+        severity: 'Essential',
+        confidence: 'High',
+        effort: 'medium',
+        proposedRemedy: 'Ensure server-rendered pricing elements with structured Product schema.',
+        serviceLine: 'Product Catalogue & Merchandising Management',
+        source: 'measured'
+      });
+    }
+
+    if (page.hasStock === false) {
+      findings.push({
+        id: nextId(),
+        title: 'Product availability is not visible',
+        category: 'Product Merchandising',
+        affectedUrl: page.url,
+        observedEvidence: `No stock or availability status detected in ${sourceName}.`,
+        businessImpact: 'Shoppers cannot confirm whether the product can be purchased before adding it to the cart.',
+        severity: 'Recommended',
+        confidence: 'High',
+        effort: 'low',
+        proposedRemedy: 'Display a clear stock or availability message next to product options.',
+        serviceLine: 'Product Catalogue & Merchandising Management',
+        source: 'measured'
+      });
+    }
+
+    if (page.hasAddToCart === false) {
+      findings.push({
+        id: nextId(),
+        title: 'Add-to-cart control not detected',
+        category: 'Conversion Efficiency',
+        affectedUrl: page.url,
+        observedEvidence: `No add-to-cart or buy-now control detected in ${sourceName}.`,
+        businessImpact: 'Shoppers may be unable to identify how to begin a purchase from the product page.',
+        severity: 'Essential',
+        confidence: 'High',
+        effort: 'medium',
+        proposedRemedy: 'Expose a clear, accessible purchase control on the product page.',
+        serviceLine: 'UX/UI & Conversion-Rate Optimisation',
+        source: 'measured'
+      });
+    }
   }
 
   // 7. Broken / Failed URLs (Technical Resilience)
@@ -1094,13 +1267,22 @@ async function runAudit(auditId: string, params: any) {
       trustMarkersCount: crawlResult.trustMarkersCount,
       homepageReachable: !!homepage,
       homepageFailReason: crawlErrorNotice || undefined,
-      workerResults
+      workerResults,
+      renderedProductEvidence: crawlResult.renderedProductEvidence,
+      unavailableProductEvidenceUrls: crawlResult.unavailableProductEvidenceUrls,
+      renderedFallback: crawlResult.renderedFallback
     });
     checkCancelled(auditId);
 
     // 3. Build deterministic measured findings from failed or partial checks
     logAudit(auditId, 'Compiling findings...');
-    const measuredFindings = buildMeasuredFindings(crawlResult.pagesInspected, crawlResult.failedPages, targetUrl);
+    const measuredFindings = buildMeasuredFindings(
+      crawlResult.pagesInspected,
+      crawlResult.failedPages,
+      targetUrl,
+      crawlResult.renderedProductEvidence,
+      crawlResult.unavailableProductEvidenceUrls
+    );
 
     // If crawl encountered an error notice or no pages inspected, prepend critical accessibility finding
     if (crawlErrorNotice || crawlResult.pagesInspected.length === 0) {
