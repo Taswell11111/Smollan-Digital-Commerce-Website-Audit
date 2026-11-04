@@ -180,7 +180,7 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
       const isTech = catDef.name === 'Technical Resilience and Security';
       categoryResults[catDef.name] = {
         score: isTech && tlsInfo.isHttps ? 40 : 0,
-        enhancedScore: 90,
+        enhancedScore: 100, // ceiling after remediation; nothing was measured on this path
         status: 'Needs attention',
         checks: catDef.checks.map(chk => {
           const checkWeight = catDef.weight / catDef.checks.length;
@@ -239,10 +239,11 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
       });
     });
 
+    const homeFailCeiling = Math.min(100, Math.round(fixList.reduce((sum, f) => sum + f.recoverablePoints, 0)));
     return {
       overallScore: 0,
-      projectedOverallScore: 90,
-      scoreUplift: 90,
+      projectedOverallScore: homeFailCeiling,
+      scoreUplift: homeFailCeiling,
       categoryResults,
       measurements: { homepageReachable: false, reason },
       rulesetVersion: RULESET_VERSION,
@@ -256,6 +257,7 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     };
   }
 
+  const deficits: Array<{ catName: string; catWeight: number; score: number; checkObj: any; fixObj: any }> = [];
   let totalMeasuredWeight = 0;
   let totalWeightedScore = 0;
   let totalCoreWeight = 0;
@@ -296,25 +298,10 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
               checkScore = 100;
               evidence = `Measured LCP at ${lcp}ms (≤ 2500ms good threshold).`;
             }
-          } else if (pagesInspected.length > 0 && typeof pagesInspected[0].loadTimeMs === 'number') {
-            const loadTime = pagesInspected[0].loadTimeMs;
-            measurements.labLcpMs = loadTime;
-            if (loadTime > 4000) {
-              checkStatus = 'fail';
-              checkScore = 40;
-              evidence = `Server page load latency measured at ${loadTime}ms (> 4000ms threshold).`;
-            } else if (loadTime > 2500) {
-              checkStatus = 'partial';
-              checkScore = 70;
-              evidence = `Server page load latency measured at ${loadTime}ms (2500ms - 4000ms threshold).`;
-            } else {
-              checkStatus = 'pass';
-              checkScore = 100;
-              evidence = `Server page load latency measured at ${loadTime}ms (≤ 2500ms good threshold).`;
-            }
           } else {
+            // Server response time is not LCP. It is never substituted here.
             checkStatus = 'not_measured';
-            evidence = `LCP not measured (${lcpRes?.reason || 'no browser or load time measurement available'}).`;
+            evidence = `LCP not measured (${lcpRes?.reason || 'no browser measurement returned'}). Server response time is not a substitute for LCP.`;
           }
           break;
         }
@@ -326,35 +313,20 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             if (inp > 500) {
               checkStatus = 'fail';
               checkScore = 40;
-              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (> 500ms threshold).`;
+              evidence = `Measured worst event latency (INP proxy) at ${inp}ms (> 500ms threshold).`;
             } else if (inp > 200) {
               checkStatus = 'partial';
               checkScore = 70;
-              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (200ms - 500ms threshold).`;
+              evidence = `Measured worst event latency (INP proxy) at ${inp}ms (200ms - 500ms threshold).`;
             } else {
               checkStatus = 'pass';
               checkScore = 100;
-              evidence = `Measured main-thread blocking time (INP proxy) at ${inp}ms (≤ 200ms good threshold).`;
-            }
-          } else if (pagesInspected.length > 0 && typeof pagesInspected[0].ttfbMs === 'number') {
-            const ttfb = pagesInspected[0].ttfbMs;
-            measurements.labInpMs = ttfb;
-            if (ttfb > 600) {
-              checkStatus = 'fail';
-              checkScore = 40;
-              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (> 600ms threshold).`;
-            } else if (ttfb > 300) {
-              checkStatus = 'partial';
-              checkScore = 70;
-              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (300ms - 600ms threshold).`;
-            } else {
-              checkStatus = 'pass';
-              checkScore = 100;
-              evidence = `Server TTFB responsiveness proxy at ${ttfb}ms (≤ 300ms good threshold).`;
+              evidence = `Measured worst event latency (INP proxy) at ${inp}ms (≤ 200ms good threshold).`;
             }
           } else {
+            // TTFB is not INP. It is never substituted here.
             checkStatus = 'not_measured';
-            evidence = `INP responsiveness proxy not measured (${inpRes?.reason || 'no browser measurement available'}).`;
+            evidence = `INP not measured (${inpRes?.reason || 'no browser interaction measurement returned'}). Server TTFB is not a substitute for INP.`;
           }
           break;
         }
@@ -517,30 +489,21 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             checkStatus = shipRes.score >= 80 ? 'pass' : 'partial';
             checkScore = shipRes.score;
             evidence = shipRes.evidence || 'Shipping information evaluated in browser worker.';
-          } else if (pagesInspected.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Shipping cost or delivery policy messaging verified across inspected pages.';
           } else {
             checkStatus = 'not_measured';
-            evidence = 'Shipping policy check not measured.';
+            evidence = 'Shipping policy not measured: no browser evaluation was returned and no shipping-policy detector is implemented.';
           }
           break;
         }
         case 'CHK-CHK-GUEST': {
           const guestRes = workerResults['CHK-CHK-GUEST'];
-          const cartCheckoutPages = pagesInspected.filter(p => p.pageType === 'cart' || p.pageType === 'checkout');
           if (guestRes && guestRes.status === 'measured') {
             checkStatus = guestRes.score >= 80 ? 'pass' : 'partial';
             checkScore = guestRes.score;
             evidence = guestRes.evidence || 'Guest checkout evaluated in browser worker.';
-          } else if (cartCheckoutPages.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Guest checkout flow accessible in cart/checkout pathway.';
           } else {
             checkStatus = 'not_measured';
-            evidence = 'Guest checkout check not measured (cart/checkout template not inspected).';
+            evidence = 'Guest checkout not measured: no browser evaluation was returned and no guest-checkout detector is implemented.';
           }
           break;
         }
@@ -555,7 +518,7 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
             if (missingAltTotal === 0) {
               checkStatus = 'pass';
               checkScore = 100;
-              evidence = 'Zero critical accessibility barriers detected in HTML markup scan.';
+              evidence = 'No missing image alt attributes across inspected pages. Scope is alt text only; full WCAG 2.1 AA was not evaluated.';
             } else if (missingAltTotal <= 3) {
               checkStatus = 'partial';
               checkScore = 70;
@@ -604,30 +567,26 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
         }
         case 'CHK-SRCH-SEARCH': {
-          if (pagesInspected.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Site search input found in global header.';
+          const searchRes = workerResults['CHK-SRCH-SEARCH'];
+          if (searchRes && searchRes.status === 'measured' && typeof searchRes.value === 'boolean') {
+            checkStatus = searchRes.value ? 'pass' : 'fail';
+            checkScore = searchRes.value ? 100 : 30;
+            evidence = searchRes.value ? 'Site search input detected in rendered page.' : 'No site search input detected in rendered page.';
           } else {
             checkStatus = 'not_measured';
-            evidence = 'Site search check not measured.';
+            evidence = 'Site search not measured: no search-input detector is implemented.';
           }
           break;
         }
         case 'CHK-SRCH-BREAD': {
           const breadRes = workerResults['CHK-SRCH-BREAD'];
-          const productPages = pagesInspected.filter(p => p.pageType === 'product');
           if (breadRes && breadRes.status === 'measured') {
             checkStatus = breadRes.score >= 80 ? 'pass' : 'partial';
             checkScore = breadRes.score;
             evidence = breadRes.evidence || 'Breadcrumb navigation evaluated in browser worker.';
-          } else if (productPages.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = `Product breadcrumb navigation detected across ${productPages.length} product page(s).`;
           } else {
             checkStatus = 'not_measured';
-            evidence = 'Product breadcrumbs check not measured (no product pages inspected).';
+            evidence = 'Breadcrumb navigation not measured: no browser evaluation was returned and no breadcrumb detector is implemented.';
           }
           break;
         }
@@ -652,17 +611,13 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
         }
         case 'CHK-MOB-TAP': {
           const tapRes = workerResults['CHK-MOB-TAP'];
-          if (tapRes && tapRes.status === 'measured') {
+          if (tapRes && tapRes.status === 'measured' && typeof tapRes.score === 'number') {
             checkStatus = tapRes.score >= 80 ? 'pass' : 'partial';
             checkScore = tapRes.score;
             evidence = tapRes.evidence || 'Tap target dimensions evaluated in browser worker.';
-          } else if (pagesInspected.length > 0) {
-            checkStatus = 'pass';
-            checkScore = 100;
-            evidence = 'Tap targets meet touch target guidelines across inspected pages.';
           } else {
             checkStatus = 'not_measured';
-            evidence = 'Tap target sizing check not measured.';
+            evidence = 'Tap target sizing not measured: no browser geometry measurement was returned.';
           }
           break;
         }
@@ -756,9 +711,8 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
           break;
         }
         default:
-          checkStatus = pagesInspected.length > 0 ? 'pass' : 'not_measured';
-          checkScore = 100;
-          evidence = checkStatus === 'pass' ? 'Check evaluated successfully.' : 'Check not measured.';
+          checkStatus = 'not_measured';
+          evidence = `Check ${chk.id} has no evaluator; it is not measured.`;
           break;
       }
 
@@ -781,26 +735,27 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
       catScoreSum += checkScore * checkWeight;
       catMeasuredCount += checkWeight;
 
-      const recoverablePoints = checkScore < 100 ? Math.round((100 - checkScore) * (checkWeight / 100) * 10) / 10 : 0;
-      if (checkScore < 100) {
-        fixList.push({
-          checkId: chk.id,
-          category: catDef.name,
-          name: chk.name,
-          status: checkStatus,
-          recoverablePoints,
-          potentialFix: chk.potentialFix
-        });
-      }
-
-      checks.push({
+      const checkObj: any = {
         id: chk.id,
         name: chk.name,
         status: checkStatus,
         evidence,
-        recoverablePoints,
+        recoverablePoints: 0,
         potentialFix: chk.potentialFix
-      });
+      };
+      checks.push(checkObj);
+      if (checkScore < 100) {
+        const fixObj = {
+          checkId: chk.id,
+          category: catDef.name,
+          name: chk.name,
+          status: checkStatus,
+          recoverablePoints: 0,
+          potentialFix: chk.potentialFix
+        };
+        fixList.push(fixObj);
+        deficits.push({ catName: catDef.name, catWeight: catDef.weight, score: checkScore, checkObj, fixObj });
+      }
     });
 
     const catScore = catMeasuredCount > 0 ? Math.round(catScoreSum / catMeasuredCount) : 100;
@@ -816,7 +771,20 @@ export function calculateScores(input: ScoringInput): ScoringOutput {
     };
   });
 
-  const overallScore = totalMeasuredWeight > 0 ? Math.round(totalWeightedScore / totalMeasuredWeight) : 70;
+  // Exact recoverable points on the overall scale. A check's share of the overall score is
+  // (100 - score) * categoryWeight / (measuredChecksInCategory * totalMeasuredWeight).
+  // This equals the simple (100 - score) * checkWeight / 100 only when everything is measured.
+  for (const d of deficits) {
+    const measuredN = categoryResults[d.catName].checks.filter((c: any) => c.status !== 'not_measured').length;
+    const gain = totalMeasuredWeight > 0 && measuredN > 0
+      ? ((100 - d.score) * d.catWeight) / (measuredN * totalMeasuredWeight)
+      : 0;
+    const rounded = Math.round(gain * 10) / 10;
+    d.checkObj.recoverablePoints = rounded;
+    d.fixObj.recoverablePoints = rounded;
+  }
+
+  const overallScore = totalMeasuredWeight > 0 ? Math.round(totalWeightedScore / totalMeasuredWeight) : 0;
   const coveragePercent = Math.min(100, Math.round((totalMeasuredWeight / 100) * 100));
   const coreCoveragePercent = totalCoreWeight > 0 ? Math.round((measuredCoreWeight / totalCoreWeight) * 100) : 100;
 

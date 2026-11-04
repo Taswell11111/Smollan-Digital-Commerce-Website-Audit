@@ -1,5 +1,8 @@
 import { Page } from 'playwright';
 
+// Word boundaries matter: a bare substring match on "available" also matches "unavailable".
+export const STOCK_SIGNAL_RE = /\bin stock\b|\bavailable\b|\badd to cart\b/;
+
 export async function evaluateChecks(page: Page, scenario: string, checkIds: string[], allowCartJourney: boolean) {
   const results: Record<string, any> = {};
 
@@ -82,10 +85,11 @@ export async function evaluateChecks(page: Page, scenario: string, checkIds: str
         break;
       }
       case 'CHK-PROD-STOCK': {
-        const hasStock = await page.evaluate(() => {
-          const txt = document.body.innerText.toLowerCase();
-          return txt.includes('in stock') || txt.includes('available') || txt.includes('add to cart');
-        });
+        // Regex source is passed in so the browser and unit tests share one definition.
+        const hasStock = await page.evaluate(
+          (src: string) => new RegExp(src, 'i').test(document.body.innerText),
+          STOCK_SIGNAL_RE.source
+        );
         results[id] = { status: 'measured', value: hasStock, tier: 'rendered', source: 'none' };
         break;
       }
@@ -117,7 +121,8 @@ export async function evaluateChecks(page: Page, scenario: string, checkIds: str
         break;
       }
       case 'CHK-MOB-TAP': {
-        results[id] = { status: 'measured', value: true, tier: 'heuristic', source: 'sourced', method: 'heuristic' };
+        // Not implemented: a hardcoded `true` would be reported as a measurement.
+        results[id] = { status: 'not_measured', reason: 'not_implemented' };
         break;
       }
       case 'CHK-MOB-VIEWPORT': {

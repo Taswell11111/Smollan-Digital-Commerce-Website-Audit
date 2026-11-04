@@ -17,7 +17,8 @@ import {
   FileText,
   ChevronDown,
   ChevronUp,
-  Compass
+  Compass,
+  Building2
 } from 'lucide-react';
 import { UrlInspectionResult } from '../types';
 
@@ -35,6 +36,7 @@ interface UrlVerificationModalProps {
   onReverify: (newUrl: string) => void;
   onUpdateInspection: (newData: Partial<UrlInspectionResult>) => void;
   currentDepth: 'quick' | 'standard' | 'deep';
+  siteType?: 'ecommerce' | 'service';
 }
 
 export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
@@ -46,6 +48,7 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
   onReverify,
   onUpdateInspection,
   currentDepth,
+  siteType = 'ecommerce',
 }) => {
   const [isDiscovering, setIsDiscovering] = useState(false);
   const [selectedDepth, setSelectedDepth] = useState<'quick' | 'standard' | 'deep'>(currentDepth);
@@ -448,49 +451,65 @@ export const UrlVerificationModal: React.FC<UrlVerificationModalProps> = ({
                 </div>
               </div>
 
-              {/* Cart and Checkout Journey Option (Phase 4c) */}
-              <div className="p-6 bg-amber-500/10 border border-amber-500/30 rounded-[32px] space-y-4">
-                <div className="flex items-start gap-4">
-                  <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl shrink-0">
-                    <ShoppingCart className="w-6 h-6" />
+              {/* Cart and Checkout Journey Option / Service Site Notice */}
+              {siteType === 'service' ? (
+                <div className="p-6 bg-cyan-500/10 border border-cyan-500/30 rounded-[32px] flex items-center gap-4">
+                  <div className="p-3 bg-cyan-500/20 text-[#00e5ff] rounded-2xl shrink-0">
+                    <Building2 className="w-6 h-6" />
                   </div>
                   <div className="space-y-1">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={allowCartJourney}
-                        onChange={(e) => {
-                          setAllowCartJourney(e.target.checked);
-                          if (!e.target.checked) setCartJourneyConfirmed(false);
-                        }}
-                        className="w-5 h-5 rounded border-amber-500/40 text-amber-600 focus:ring-amber-500 bg-black/40"
-                      />
-                      <span className="text-sm font-black text-white uppercase tracking-wider">
-                        Run cart and checkout journey (creates and clears a cart on the prospect's live store)
-                      </span>
-                    </label>
-                    <p className="text-xs font-bold text-amber-300/80 uppercase tracking-tight">
-                      Warning: The journey fires the prospect's analytics and ad tags.
+                    <h4 className="text-sm font-black text-white uppercase tracking-wider">
+                      Service-Based Website Audit Active
+                    </h4>
+                    <p className="text-xs font-bold text-cyan-300/80 uppercase tracking-tight">
+                      Product detail page (PDP) evaluations and cart checkout step simulations are bypassed. The audit will evaluate lead capture forms, service details, and brand credibility instead.
                     </p>
                   </div>
                 </div>
-
-                {allowCartJourney && (
-                  <div className="pl-12 pt-2 border-t border-amber-500/20">
-                    <label className="flex items-center gap-3 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={cartJourneyConfirmed}
-                        onChange={(e) => setCartJourneyConfirmed(e.target.checked)}
-                        className="w-4 h-4 rounded border-amber-500/40 text-amber-600 focus:ring-amber-500 bg-black/40"
-                      />
-                      <span className="text-xs font-bold text-white uppercase tracking-wider">
-                        I explicitly confirm authorization to execute the test cart journey on this target storefront.
-                      </span>
-                    </label>
+              ) : (
+                <div className="p-6 bg-amber-500/10 border border-amber-500/30 rounded-[32px] space-y-4">
+                  <div className="flex items-start gap-4">
+                    <div className="p-3 bg-amber-500/20 text-amber-400 rounded-2xl shrink-0">
+                      <ShoppingCart className="w-6 h-6" />
+                    </div>
+                    <div className="space-y-1">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allowCartJourney}
+                          onChange={(e) => {
+                            setAllowCartJourney(e.target.checked);
+                            if (!e.target.checked) setCartJourneyConfirmed(false);
+                          }}
+                          className="w-5 h-5 rounded border-amber-500/40 text-amber-600 focus:ring-amber-500 bg-black/40"
+                        />
+                        <span className="text-sm font-black text-white uppercase tracking-wider">
+                          Run cart and checkout journey (creates and clears a cart on the prospect's live store)
+                        </span>
+                      </label>
+                      <p className="text-xs font-bold text-amber-300/80 uppercase tracking-tight">
+                        Warning: The journey fires the prospect's analytics and ad tags.
+                      </p>
+                    </div>
                   </div>
-                )}
-              </div>
+
+                  {allowCartJourney && (
+                    <div className="pl-12 pt-2 border-t border-amber-500/20">
+                      <label className="flex items-center gap-3 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={cartJourneyConfirmed}
+                          onChange={(e) => setCartJourneyConfirmed(e.target.checked)}
+                          className="w-4 h-4 rounded border-amber-500/40 text-amber-600 focus:ring-amber-500 bg-black/40"
+                        />
+                        <span className="text-xs font-bold text-white uppercase tracking-wider">
+                          I explicitly confirm authorization to execute the test cart journey on this target storefront.
+                        </span>
+                      </label>
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Browser Mockup */}
               <div className="border border-white/10 rounded-[36px] overflow-hidden shadow-2xl bg-black">

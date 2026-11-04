@@ -32,9 +32,7 @@ import { AuditRecord } from '../types';
 import { generatePdfReportHtml } from '../utils/generatePdfReportHtml';
 import { CATEGORY_RULESET, CATEGORY_WEIGHTS } from '../config/ruleset';
 import { SeoGrowthForecast } from './SeoGrowthForecast';
-import { GlobalEnterpriseBenchmarkModal } from './GlobalEnterpriseBenchmarkModal';
 import { AgenticCommerceAuditView } from './AgenticCommerceAuditView';
-import { AuditExecutionCostModal } from './AuditExecutionCostModal';
 
 interface AuditReportProps {
   audit: AuditRecord;
@@ -146,8 +144,6 @@ export const AuditReport: React.FC<AuditReportProps> = ({ audit, onNavigateTab }
   const [expandedCategory, setExpandedCategory] = useState<string | null>(null);
   const [showMethodology, setShowMethodology] = useState<boolean>(false);
   const [showPrintModal, setShowPrintModal] = useState<boolean>(false);
-  const [showBenchmarkModal, setShowBenchmarkModal] = useState<boolean>(false);
-  const [showCostModal, setShowCostModal] = useState<boolean>(false);
   const [downloadToast, setDownloadToast] = useState<string | null>(null);
   const [copiedSummary, setCopiedSummary] = useState<boolean>(false);
 
@@ -371,19 +367,6 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
             <span className="text-[10px] text-slate-400 uppercase font-bold block">Audit Date</span>
             <span className="text-xs font-bold text-slate-300">{new Date(audit.timestamp).toLocaleDateString()}</span>
           </div>
-          <div
-            onClick={() => setShowCostModal(true)}
-            className="text-right pl-1 cursor-pointer hover:bg-slate-700/60 p-1.5 rounded-xl transition group"
-            title="Click to view itemized cloud compute, bandwidth, and AI inference cost"
-          >
-            <span className="text-[10px] text-[#00e5ff] uppercase font-black block flex items-center justify-end gap-1">
-              <Zap className="w-3 h-3 text-[#00e5ff]" />
-              Audit Cost
-            </span>
-            <span className="text-xs font-black text-emerald-400 group-hover:underline">
-              R 0.035 <span className="text-[9px] text-slate-400 font-mono">($0.0019)</span>
-            </span>
-          </div>
         </div>
       </div>
 
@@ -431,22 +414,6 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
           >
             <Info className="w-3.5 h-3.5 text-cyan-600" />
             <span>Scoring Methodology</span>
-          </button>
-          <button
-            onClick={() => setShowBenchmarkModal(true)}
-            className="bg-[#002157] hover:bg-[#0f2866] text-white border border-[#00e5ff]/30 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
-            title="Compare performance against Global Enterprise eCommerce Standards"
-          >
-            <BarChart3 className="w-3.5 h-3.5 text-[#00e5ff]" />
-            <span>Global Enterprise Benchmarks</span>
-          </button>
-          <button
-            onClick={() => setShowCostModal(true)}
-            className="bg-[#002157] hover:bg-[#0f2866] text-emerald-400 border border-emerald-400/40 px-3.5 py-2 rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow"
-            title="View itemized cloud compute and AI inference cost breakdown"
-          >
-            <Zap className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Audit Cost: R 0.035</span>
           </button>
           <button
             onClick={() => onNavigateTab('sandbox')}
@@ -748,7 +715,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
             <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700/80">
               <span className="text-[10px] text-slate-400 block font-semibold uppercase">Overall Experience Score</span>
               <span className="text-sm font-bold text-emerald-400">{currentOverall} / 100</span>
-              <span className="text-[9px] text-slate-500 block mt-0.5">12-factor weighted model</span>
+              <span className="text-[9px] text-slate-500 block mt-0.5">weighted category model</span>
             </div>
             <div className="bg-slate-800/80 p-3.5 rounded-2xl border border-slate-700/80">
               <span className="text-[10px] text-slate-400 block font-semibold uppercase">Failed / Broken URLs</span>
@@ -1179,11 +1146,6 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
                   <div><strong>Overall Score:</strong> {audit.overallScore}/100 → Potential Target: {projectedScore}/100 (+{uplift} pts potential recovery)</div>
                   <div><strong>Verdict:</strong> {audit.executiveVerdict?.headline}</div>
                   <div><strong>Action Plan:</strong> {audit.summaryCounts.essential} Essential fixes · {audit.summaryCounts.recommended} Recommended · {audit.summaryCounts.content} Content updates</div>
-                  {audit.executionCost && (
-                    <div className="pt-1 border-t border-slate-100 mt-1">
-                      <strong>Audit Execution Cost:</strong> R {audit.executionCost.totalEstimatedCostZar.toFixed(4)} ($ {audit.executionCost.totalEstimatedCostUsd.toFixed(5)})
-                    </div>
-                  )}
                 </div>
               </div>
 
@@ -1204,21 +1166,7 @@ Critical Issues: ${audit.summaryCounts.essential} Essential | ${audit.summaryCou
         </div>
       )}
 
-      {/* Global Enterprise eCommerce Benchmarking Modal Overlay */}
-      {showBenchmarkModal && (
-        <GlobalEnterpriseBenchmarkModal
-          audit={audit}
-          onClose={() => setShowBenchmarkModal(false)}
-          onNavigateTab={onNavigateTab}
-        />
-      )}
 
-      {/* Itemized Audit Execution Cost & Compute Telemetry Modal */}
-      <AuditExecutionCostModal
-        audit={audit}
-        isOpen={showCostModal}
-        onClose={() => setShowCostModal(false)}
-      />
 
       </div>
     </div>

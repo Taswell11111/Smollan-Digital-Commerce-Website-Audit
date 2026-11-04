@@ -3,7 +3,6 @@ import {
   ArrowRight, 
   BarChart3, 
   Mail, 
-  PlusCircle, 
   Sparkles, 
   ShieldCheck, 
   TrendingUp, 
@@ -68,18 +67,17 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({
   const essentialFindingsCount = activeClient?.findings?.filter(f => f.severity === 'Essential').length || 0;
   const recommendedFindingsCount = activeClient?.findings?.filter(f => f.severity === 'Recommended').length || 0;
 
-  const agenticScore = activeClient?.agenticCommerce?.agenticScore;
-  const executionCostZar = activeClient?.executionCost?.totalEstimatedCostZar;
+  const jsonLdTypesFound = activeClient?.agenticCommerce?.measured?.jsonLd?.typesFound?.length;
 
   const objections = [
     {
       objection: "We already have an incumbent digital agency or internal dev squad.",
-      talkingPoint: "Smollan does not ask you to replace your existing team or agency. We provide forensic 12-factor telemetry and pre-built code components from our Interactive Sandbox that your existing engineering squad can test and deploy in days without structural disruption.",
+      talkingPoint: "Smollan does not ask you to replace your existing team or agency. We provide forensic measured telemetry and pre-built code components from our Interactive Sandbox that your existing engineering squad can test and deploy in days without structural disruption.",
       proof: "Direct measured data rather than subjective opinions."
     },
     {
       objection: "We don't have the Capex budget for a full eCommerce replatform right now.",
-      talkingPoint: "A complete replatform is unnecessary. Our diagnostic proves that targeting measured high-friction bottlenecks (such as missing variant sizing guides, slow TTFB, and unindexed product schema) recovers up to 35 points of conversion performance on your existing tech stack.",
+      talkingPoint: "A complete replatform is unnecessary. Our diagnostic proves that targeting measured high-friction bottlenecks (such as missing variant sizing guides, slow TTFB, and unindexed product schema) can be addressed on your existing tech stack; the size of the gain is only known after your baseline is measured.",
       proof: "Micro-interventions yield immediate conversion recovery."
     },
     {
@@ -115,16 +113,6 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({
           <p className="text-slate-300 text-sm max-w-2xl leading-relaxed">
             Forensic diagnostic telemetry, commercial pitch vectors, and interactive deal acceleration tools for Smollan enterprise sales representatives.
           </p>
-        </div>
-
-        <div className="relative z-10 flex flex-wrap items-center gap-3">
-          <button
-            onClick={onLaunchNewAudit}
-            className="px-6 py-3.5 bg-[var(--theme-highlight)] text-[var(--theme-header-bg)] hover:bg-white rounded-2xl text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-xl shadow-cyan-500/20 transition-all active:scale-[0.98]"
-          >
-            <PlusCircle className="w-4 h-4" />
-            <span>Audit New Client</span>
-          </button>
         </div>
 
         {/* Ambient glow */}
@@ -211,14 +199,6 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({
                 </span>
                 <span>•</span>
                 <span>Evaluated: {new Date(activeClient.timestamp).toLocaleDateString()}</span>
-                {executionCostZar !== undefined && (
-                  <>
-                    <span>•</span>
-                    <span className="text-emerald-700 font-mono">
-                      Audit Conducted: R {executionCostZar.toFixed(3)}
-                    </span>
-                  </>
-                )}
               </div>
             </div>
 
@@ -281,10 +261,10 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({
                 <span>Agentic AI Commerce Status</span>
               </div>
               <div className="text-sm font-black text-slate-900 uppercase tracking-tight">
-                {agenticScore !== undefined ? `${agenticScore}/100 (${activeClient.agenticCommerce?.readinessTier})` : 'Architecture Ready'}
+                {jsonLdTypesFound !== undefined ? `${jsonLdTypesFound} JSON-LD type(s) measured` : 'Not measured'}
               </div>
               <p className="text-xs text-slate-500 leading-relaxed">
-                4-layer data architecture & synthetic buyer bot accessibility index.
+                Measured from structured data and robots.txt on inspected pages.
               </p>
             </div>
           </div>
@@ -427,7 +407,7 @@ export const SalesDashboard: React.FC<SalesDashboardProps> = ({
               {
                 title: "1. Conversion Rate Optimization & Variant Hesitation",
                 summary: "Eliminate checkout friction caused by absent sizing guides and unclear pricing. Shoppers leave when variant specifications are ambiguous.",
-                metric: "Recovers 12-24% of checkout drop-offs"
+                metric: "Checkout drop-off reduction: measured after baseline"
               },
               {
                 title: "2. Agentic AI & Autonomous Machine Purchasing",

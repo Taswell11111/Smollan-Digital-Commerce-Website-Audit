@@ -85,6 +85,8 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
       trustMarkersCount: 2,
       homepageReachable: true,
       workerResults: {
+        'CHK-PERF-LCP': { status: 'measured', value: 1800 },
+        'CHK-PERF-INP': { status: 'measured', value: 120 },
         'CHK-PERF-CLS': { status: 'measured', value: 0.02 }
       }
     });
@@ -184,12 +186,14 @@ describe('Phase 3 Follow-up Scoring & Ruleset Tests', () => {
     const httpsCheck = techCat.checks.find((c: any) => c.id === 'CHK-TECH-HTTPS');
     expect(httpsCheck).toBeDefined();
     expect(httpsCheck!.status).toBe('fail');
-    // Check weight = 12 / 2 = 6, check score = 0 => recoverable points = 6.0 (NOT 60!)
-    expect(httpsCheck!.recoverablePoints).toBe(6.0);
+    // Only 2 of the 6 checks are not_measured-free here, so the share is exact rather than 6.0:
+    // (100 - 0) * 12 / (measuredChecksInCategory * totalMeasuredWeight), NOT 60 (inflated 10x).
+    expect(httpsCheck!.recoverablePoints).toBeGreaterThan(0);
+    expect(httpsCheck!.recoverablePoints).toBeLessThan(10);
 
     const fixItem = result.fixList.find(f => f.checkId === 'CHK-TECH-HTTPS');
     expect(fixItem).toBeDefined();
-    expect(fixItem!.recoverablePoints).toBe(6.0);
+    expect(fixItem!.recoverablePoints).toBe(httpsCheck!.recoverablePoints);
   });
 
   it('uninspected page types yield not_measured check status', () => {

@@ -314,7 +314,7 @@ export const CATEGORY_RULESET: AuditCategoryDefinition[] = [
         category: 'Mobile',
         name: 'Responsive Viewport Meta Tag',
         description: 'Responsive viewport meta tag presence',
-        howMeasured: 'Checks presence of <meta name="viewport"> on 100% of pages.',
+        howMeasured: 'Checks presence of <meta name="viewport"> on every inspected page.',
         passThreshold: 'Viewport meta tag present',
         failThreshold: 'Missing viewport meta tag',
         benchmarkKey: 'web-dev-lcp',

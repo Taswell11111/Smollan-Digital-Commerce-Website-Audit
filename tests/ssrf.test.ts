@@ -88,3 +88,21 @@ describe('SSRF Protection & URL Validation', () => {
     expect(isBlockedIp('::ffff:8.8.8.8')).toBe(false);
   });
 });
+
+describe('IPv4-compatible and unparseable addresses (added)', () => {
+  it('blocks IPv4-compatible IPv6 addresses such as ::127.0.0.1', async () => {
+    const { isBlockedIp } = await import('../src/utils/ssrf');
+    expect(isBlockedIp('::7f00:1')).toBe(true);
+    expect(isBlockedIp('::a9fe:a9fe')).toBe(true);
+  });
+
+  it('still allows ordinary public IPv6 addresses', async () => {
+    const { isBlockedIp } = await import('../src/utils/ssrf');
+    expect(isBlockedIp('2606:4700:4700::1111')).toBe(false);
+  });
+
+  it('fails closed on input it cannot parse', async () => {
+    const { isBlockedIp } = await import('../src/utils/ssrf');
+    expect(isBlockedIp('not-an-ip')).toBe(true);
+  });
+});

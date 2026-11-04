@@ -191,7 +191,7 @@ export function generatePdfReportHtml(audit: AuditRecord, roiOutput?: RoiOutput)
         </span>
       </div>
       <p style="font-size: 13px; color: #cbd5e1; margin-bottom: 12px; line-height: 1.6;">
-        Evaluates ${audit.businessName}'s catalog readiness to be discovered, evaluated, and autonomously purchased by Large Language Models and AI shopping agents (ChatGPT, Gemini, Perplexity) in zero-click commerce environments. By 2030, Bain &amp; Company project $300B–$500B (15%–25% of all digital commerce spend) will route directly through autonomous machine agents.
+        Evaluates ${audit.businessName}'s catalog readiness to be discovered, evaluated, and autonomously purchased by Large Language Models and AI shopping agents (ChatGPT, Gemini, Perplexity) in zero-click commerce environments.
       </p>
       
       <h4 style="font-size: 12px; text-transform: uppercase; color: #00e5ff; margin-top: 14px; margin-bottom: 8px; font-weight: 800;">
@@ -209,7 +209,7 @@ export function generatePdfReportHtml(audit: AuditRecord, roiOutput?: RoiOutput)
           <tr>
             <td style="padding: 8px; border: 1px solid #1e293b;"><strong>Layer 1: Master Data</strong></td>
             <td style="padding: 8px; border: 1px solid #1e293b;">SKUs, GTINs, MPNs, dimensions, origin, materials</td>
-            <td style="padding: 8px; border: 1px solid #1e293b;">Universal identifiers prevent up to 40% catalog exclusion</td>
+            <td style="padding: 8px; border: 1px solid #1e293b;">Universal identifiers reduce catalogue matching errors (impact not quantified by this audit)</td>
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #1e293b;"><strong>Layer 2: Dynamic Data</strong></td>
@@ -223,7 +223,7 @@ export function generatePdfReportHtml(audit: AuditRecord, roiOutput?: RoiOutput)
           </tr>
           <tr>
             <td style="padding: 8px; border: 1px solid #1e293b;"><strong>Layer 4: Trust &amp; ESG</strong></td>
-            <td style="padding: 8px; border: 1px solid #1e293b;">Sustainability certifications, carbon data, POPIA governance</td>
+            <td style="padding: 8px; border: 1px solid #1e293b;">Sustainability and governance metadata (not measured by this audit)</td>
             <td style="padding: 8px; border: 1px solid #1e293b;">Enables non-price constraint filtering by AI assistants</td>
           </tr>
         </tbody>

@@ -25,6 +25,7 @@ const BLOCKED_IPV4_CIDRS = [
 const BLOCKED_IPV6_CIDRS = [
   '::1/128',
   '::/128',
+  '::/96', // IPv4-compatible (deprecated); blocks e.g. ::127.0.0.1
   'fc00::/7',
   'fe80::/10',
   'ff00::/8',
@@ -44,7 +45,7 @@ export function isBlockedIp(rawIp: string): boolean {
   }
 
   if (!ipaddr.isValid(cleanIp)) {
-    return false;
+    return true; // fail closed: an address we cannot parse is never trusted
   }
 
   let addr: ipaddr.IPv4 | ipaddr.IPv6;
@@ -93,6 +94,19 @@ export function isBlockedIp(rawIp: string): boolean {
 
     return BLOCKED_IPV6_CIDRS.some(cidr => v6.match(cidr));
   }
+}
+
+let ipBlockPolicy: (ip: string) => boolean = isBlockedIp;
+
+/**
+ * Test-only: lets the integration suite reach a loopback fixture server.
+ * Refuses to run outside the Vitest runner so it cannot weaken production.
+ */
+export function __setIpBlockPolicyForTests(policy: ((ip: string) => boolean) | null): void {
+  if (!process.env.VITEST) {
+    throw new Error('__setIpBlockPolicyForTests is only available under the test runner');
+  }
+  ipBlockPolicy = policy ?? isBlockedIp;
 }
 
 export interface UrlValidationResult {
@@ -153,7 +167,7 @@ export async function validateTargetUrl(
 
   // Check if hostname is an IP address literal directly
   if (net.isIP(hostname)) {
-    if (isBlockedIp(hostname)) {
+    if (ipBlockPolicy(hostname)) {
       return { valid: false, error: `Access to private/restricted IP '${hostname}' is blocked.` };
     }
   }
@@ -177,7 +191,7 @@ export async function validateTargetUrl(
 
   const addresses = resolved.map(r => r.address);
   for (const addr of addresses) {
-    if (isBlockedIp(addr)) {
+    if (ipBlockPolicy(addr)) {
       return {
         valid: false,
         error: `Host '${hostname}' resolves to blocked private/internal address ${addr}.`,

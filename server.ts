@@ -16,20 +16,108 @@ import { CATEGORY_RULESET, CATEGORY_WEIGHTS, RULESET_VERSION, SCHEMA_VERSION } f
 import { callBrowserWorker } from './server/workerClient.ts';
 import { parseCrawlerHtml } from './src/utils/crawlerHtml.ts';
 import { collectRenderedProductEvidence, extractProductSignals } from './src/utils/firecrawl.ts';
+import { readStorage, writeStorage, StorageCorruptError } from './server/storage.ts';
+import { extractJsonLdTypes, evaluateAiBotAccess, isPathAllowed, REQUIRED_SCHEMA_TYPES, AI_BOTS } from './src/utils/measuredSignals.ts';
+import { SessionStore, tokenMatches, readCookie, createAuthGuard, productionAuthConfigError, SESSION_COOKIE, SESSION_TTL_MS } from './server/auth.ts';
+import { auditPageSource } from './server/qaSourceAuditor.ts';
+import { generateQaExcelWorkbook } from './server/qaExcelBridge.ts';
+
+/** Single model id for every Gemini call. Verify it is available on the account before deploying. */
+const AI_MODEL = 'gemini-3.1-flash-lite';
+
+export function isShortText(value: unknown, maxWords: number): value is string {
+  if (typeof value !== 'string') return false;
+  const t = value.trim();
+  return t.length > 0 && !/[\r\n]/.test(t) && t.split(/\s+/).length <= maxWords;
+}
+
+/** Audits saved before the measured-only change carry removed fields; drop them when read. */
+export function sanitizeLegacyAudit(a: any) {
+  if (a && a.agenticCommerce && !a.agenticCommerce.measured) delete a.agenticCommerce;
+  if (a && 'executionCost' in a) delete a.executionCost;
+  return a;
+}
 
 const app = express();
 app.set('trust proxy', 1);
 // Reduced JSON body limit to 100kb
 app.use(express.json({ limit: '100kb' }));
 
+const API_TOKEN = process.env.API_TOKEN || '';
+const sessions = new SessionStore();
+// Every /api route below requires a bearer token or a session cookie when API_TOKEN is set.
+app.use('/api', createAuthGuard({ token: API_TOKEN || undefined, sessions }));
+
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  validate: { xForwardedForHeader: false, forwardedHeader: false },
+  message: { error: 'Too many login attempts. Try again later.' }
+});
+
+app.get('/api/session', (req: Request, res: Response) => {
+  if (!API_TOKEN) return res.json({ authenticated: true, authRequired: false });
+  if (sessions.isValid(readCookie(req.headers.cookie, SESSION_COOKIE))) {
+    return res.json({ authenticated: true, authRequired: true });
+  }
+  res.status(401).json({ authenticated: false, authRequired: true });
+});
+
+app.post('/api/session', loginLimiter, (req: Request, res: Response) => {
+  if (!API_TOKEN) return res.json({ authenticated: true, authRequired: false });
+  const providedToken = req.body?.token;
+  if (!tokenMatches(providedToken, API_TOKEN)) {
+    return res.status(401).json({ error: 'Invalid token.' });
+  }
+  const sid = sessions.create();
+  const isHttpsOrProd = process.env.NODE_ENV === 'production' || req.headers['x-forwarded-proto'] === 'https';
+  const sameSite = isHttpsOrProd ? '; Secure; SameSite=None' : '; SameSite=Strict';
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${sid}; HttpOnly; Path=/; Max-Age=${SESSION_TTL_MS / 1000}${sameSite}`);
+  res.json({ authenticated: true, authRequired: true, token: typeof providedToken === 'string' ? providedToken.trim().replace(/^["']|["']$/g, '') : undefined });
+});
+
+app.post('/api/logout', (req: Request, res: Response) => {
+  sessions.revoke(readCookie(req.headers.cookie, SESSION_COOKIE));
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; SameSite=Strict; Path=/; Max-Age=0`);
+  res.json({ success: true });
+});
+
 // Tracking audit progress
-const auditStatusMap = new Map<string, { status: 'running' | 'complete' | 'failed', logs: string[], result?: any, error?: string }>();
+export const auditStatusMap = new Map<string, { status: 'running' | 'complete' | 'failed', logs: string[], result?: any, error?: string }>();
 
 function logAudit(auditId: string, message: string) {
   const status = auditStatusMap.get(auditId);
   if (status) {
     status.logs.push(`[${new Date().toLocaleTimeString()}] ${message}`);
   }
+}
+
+const auditCreatedAt = new Map<string, number>();
+const AUDIT_STATUS_TTL_MS = 2 * 60 * 60 * 1000;
+
+/** Drops finished audit statuses older than the TTL. Running audits are never dropped. */
+export function pruneAuditStatus(now = Date.now()) {
+  for (const [id, created] of auditCreatedAt) {
+    if (now - created < AUDIT_STATUS_TTL_MS) continue;
+    if (auditStatusMap.get(id)?.status === 'running') continue;
+    auditStatusMap.delete(id);
+    auditCreatedAt.delete(id);
+  }
+}
+
+/** Marks a running audit cancelled. The pipeline observes this at its checkpoints and persists nothing. */
+export function cancelAuditRecord(auditId: string): 'not_found' | 'cancelled' | 'not_running' {
+  const status = auditStatusMap.get(auditId);
+  if (!status) return 'not_found';
+  if (status.status !== 'running') return 'not_running';
+  auditStatusMap.set(auditId, {
+    status: 'failed',
+    logs: [...status.logs, '[SYSTEM] Audit cancelled by user.'],
+    error: 'cancelled'
+  });
+  return 'cancelled';
 }
 
 function checkCancelled(auditId: string) {
@@ -67,7 +155,16 @@ const pitchLimiter = rateLimit({
   message: { error: 'Too many sales pitch requests from this IP. Please try again after 10 minutes.' }
 });
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+// Vitest imports this module; never start Vite or bind a port in that case.
+const IS_TEST = !!process.env.VITEST;
+if (!IS_TEST) {
+  const authConfigError = productionAuthConfigError(process.env);
+  if (authConfigError) {
+    console.error(`FATAL: ${authConfigError}`);
+    process.exit(1);
+  }
+}
 
 // Shared Gemini client utility with aistudio-build user-agent telemetry
 let cachedAI: GoogleGenAI | null = null;
@@ -134,7 +231,7 @@ async function scrapeRenderedPageWithFirecrawl(url: string, timeoutMs: number) {
 }
 
 // Storage directory setup
-const STORAGE_DIR = path.join(process.cwd(), 'data');
+const STORAGE_DIR = process.env.DATA_DIR || path.join(process.cwd(), 'data');
 if (!fs.existsSync(STORAGE_DIR)) {
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
 }
@@ -205,20 +302,6 @@ if (!fs.existsSync(SERVICES_FILE)) {
   fs.writeFileSync(SERVICES_FILE, JSON.stringify(defaultServices, null, 2));
 }
 
-function readStorage(file: string): any[] {
-  try {
-    if (fs.existsSync(file)) {
-      return JSON.parse(fs.readFileSync(file, 'utf-8'));
-    }
-  } catch (e) {
-    console.error(`Error reading ${file}:`, e);
-  }
-  return [];
-}
-
-function writeStorage(file: string, data: any[]) {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2));
-}
 
 const BENCHMARKS_FILE = path.join(STORAGE_DIR, 'benchmarks.json');
 
@@ -286,7 +369,7 @@ function calculateIndustryBenchmarks(categoryResults: Record<string, { score: nu
 }
 
 // Server-side crawler implementation
-async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'deep', auditId?: string, customMaxPages?: number) {
+export async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'deep', auditId?: string, customMaxPages?: number) {
   const parsedMax = Number(customMaxPages);
   const maxPages = (!isNaN(parsedMax) && parsedMax > 0)
     ? parsedMax
@@ -294,6 +377,10 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
   if (auditId) logAudit(auditId, `Starting crawl for ${targetUrl} (target budget: ${maxPages} pages, depth: ${depth})`);
   const visited = new Set<string>();
   const queue: string[] = [targetUrl];
+  // robots.txt is fetched once per crawl and honoured for every URL below.
+  const robots = await fetchRobotsForAudit(targetUrl);
+  const robotsBlocked: string[] = [];
+  if (auditId && robots.status === 'error') logAudit(auditId, 'robots.txt could not be retrieved; crawling proceeds and access is recorded as not determined.');
   const pagesInspected: any[] = [];
   const failedPages: any[] = [];
   const productCandidateUrls = new Set<string>();
@@ -327,9 +414,21 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
   }
 
   while (queue.length > 0 && pagesInspected.length < maxPages) {
+    if (auditId) checkCancelled(auditId);
     const currentUrl = queue.shift()!;
     if (visited.has(currentUrl)) continue;
     visited.add(currentUrl);
+
+    const pathWithQuery = (() => { const u = new URL(currentUrl); return `${u.pathname}${u.search}`; })();
+    if (!isPathAllowed(robots.text, 'SmollanDigitalAuditor', pathWithQuery)) {
+      robotsBlocked.push(currentUrl);
+      if (currentUrl === targetUrl) {
+        // A blocked homepage means nothing can be audited; surface it as the access notice.
+        failedPages.push({ url: currentUrl, status: 0, error: 'Disallowed by robots.txt' });
+      }
+      if (auditId) logAudit(auditId, `Skipped (robots.txt): ${currentUrl}`);
+      continue;
+    }
 
     try {
       // Record TTFB separately: elapsed time until HTTP response headers arrive
@@ -380,6 +479,7 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
       const loadTimeMs = ttfbMs + downloadTimeMs;
 
       const { $, $clean, visibleText, bodyText } = parseCrawlerHtml(html);
+      const jsonLdTypes = extractJsonLdTypes(html);
       const productSignals = extractProductSignals($clean, visibleText, currentUrl);
 
       // Extract metadata
@@ -395,7 +495,16 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
 
       if (pathLower === '/' || pathLower === '') {
         pageType = 'homepage';
-      } else if (pathLower.includes('/product') || pathLower.includes('/item') || pathLower.includes('/p/') || pathLower.includes('/sku-') || $('.product-single, .product-main, .pdp, [itemtype*="Product"], .product-view, .product-detail').length > 0) {
+      } else if (
+        pathLower.includes('/product') || 
+        pathLower.includes('/item') || 
+        pathLower.includes('/p/') || 
+        pathLower.includes('/pd/') ||
+        pathLower.includes('/sku-') || 
+        jsonLdTypes.includes('Product') ||
+        (productSignals.hasAddToCart && (productSignals.hasPrice || productSignals.hasStock)) ||
+        $('.product-single, .product-main, .pdp, [itemtype*="Product"], .product-view, .product-detail, [data-product-id], form[action*="/cart/add"], button[name="add"]').length > 0
+      ) {
         pageType = 'product';
       } else if (pathLower.includes('/collection') || pathLower.includes('/category') || pathLower.includes('/shop') || pathLower.includes('/search') || pathLower.includes('/c/') || $('.collection, .category-products, .product-list, .plp, .category-view').length > 0) {
         pageType = 'category';
@@ -493,7 +602,11 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
               const isNav = $(el).parents('nav, header, [role="navigation"], .menu, .nav, .navigation, .site-header, #menu, #nav').length > 0;
               const productPath = /(?:^|\/)(?:products?|items?|p|sku-[^/]+|dp)(?:\/|$)/i.test(resolved.pathname);
               const productContainer = $(el).closest('[class*="product"], [data-product-id], [itemtype*="Product"]').length > 0;
-              if (productPath || productContainer) productCandidateUrls.add(resolvedStr);
+              // Product candidates feed a second fetch path, so they obey robots.txt too.
+              const candidatePath = `${resolved.pathname}${resolved.search}`;
+              if ((productPath || productContainer) && isPathAllowed(robots.text, 'SmollanDigitalAuditor', candidatePath)) {
+                productCandidateUrls.add(resolvedStr);
+              }
 
               if (isNav) {
                 navLinks.push(resolvedStr);
@@ -537,6 +650,7 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
         hasAddToCart: productSignals.hasAddToCart,
         evidenceSources: ['direct_html'],
         hasSizeGuide,
+        jsonLdTypes,
         hasCanonical,
         hasMetaViewport,
         screenshotUrl: pageScreenshot,
@@ -561,6 +675,10 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
     targetUrl,
     pagesInspected,
     productCandidateUrls: Array.from(productCandidateUrls),
+    isAllowed: (url: string) => {
+      const u = new URL(url);
+      return isPathAllowed(robots.text, 'SmollanDigitalAuditor', `${u.pathname}${u.search}`);
+    },
     scrapePage: scrapeRenderedPageWithFirecrawl
   });
 
@@ -599,6 +717,8 @@ async function crawlWebsite(targetUrl: string, depth: 'quick' | 'standard' | 'de
   return {
     pagesInspected,
     failedPages,
+    robots,
+    robotsBlocked,
     pagesDiscoveredCount: visited.size,
     renderedProductEvidence: renderedFallback.evidence,
     unavailableProductEvidenceUrls: renderedFallback.unavailableUrls,
@@ -652,12 +772,17 @@ app.post('/api/services', (req: Request, res: Response) => {
 app.get('/api/audits', (req: Request, res: Response) => {
   const audits = readStorage(AUDITS_FILE);
   const enriched = audits.map((a: any) => {
+    sanitizeLegacyAudit(a);
     if (!a.industryBenchmarks && a.categoryResults) {
       a.industryBenchmarks = calculateIndustryBenchmarks(a.categoryResults);
     }
     return a;
   });
   res.json(enriched);
+});
+
+app.get('/api/sender', (req: Request, res: Response) => {
+  res.json(senderConfig);
 });
 
 app.get('/api/leads', (req: Request, res: Response) => {
@@ -674,18 +799,11 @@ app.get('/api/audit/status/:auditId', (req: Request, res: Response) => {
 });
 
 app.delete('/api/audit/cancel/:auditId', (req: Request, res: Response) => {
-  const status = auditStatusMap.get(req.params.auditId);
-  if (!status) {
+  const outcome = cancelAuditRecord(req.params.auditId);
+  if (outcome === 'not_found') {
     return res.status(404).json({ error: 'Audit not found' });
   }
-  if (status.status === 'running') {
-    auditStatusMap.set(req.params.auditId, { 
-      status: 'failed', 
-      logs: [...status.logs, '[SYSTEM] Audit cancelled by user.'], 
-      error: 'cancelled' 
-    });
-  }
-  res.json({ success: true });
+  res.json({ success: true, outcome });
 });
 
 // Fast URL inspection & screenshot verification endpoint with SSRF protection and abuse limits
@@ -913,6 +1031,24 @@ app.post('/api/discover-pages', inspectLimiter, async (req: Request, res: Respon
     res.status(500).json({ success: false, error: err.message || 'Failed to discover pages.' });
   }
 });
+
+/** Fetches robots.txt once for the audit. Errors are reported as 'error', never assumed open or closed. */
+async function fetchRobotsForAudit(targetUrl: string): Promise<{ status: 'fetched' | 'absent' | 'error'; text: string | null }> {
+  try {
+    const origin = new URL(targetUrl).origin;
+    const r = await safeFetch(`${origin}/robots.txt`, {
+      method: 'GET',
+      maxRedirects: 4,
+      headers: { 'User-Agent': 'SmollanDigitalAuditor/1.0 (+https://ecompletecommerce.co.za/auditor)' }
+    });
+    // 404 means no robots rules apply, so every bot is allowed; use empty text.
+    if (r.res.status === 404) return { status: 'absent', text: '' };
+    if (!r.res.ok) return { status: 'error', text: null };
+    return { status: 'fetched', text: await readResponseBodyWithLimit(r.res, 512 * 1024) };
+  } catch {
+    return { status: 'error', text: null };
+  }
+}
 
 // Deterministic Measured Findings Builder - zero invented or mock findings
 function buildMeasuredFindings(
@@ -1204,9 +1340,9 @@ function buildMeasuredVerdict(categoryResults: Record<string, { score: number; c
 }
 
 // Run audit endpoint using most affordable model: gemini-3.1-flash-lite (with rate limiting and SSRF protection)
-async function runAudit(auditId: string, params: any) {
+export async function runAudit(auditId: string, params: any) {
   try {
-    const { url, businessName, businessCategory, targetMarket, primaryObjective, depth, mode, allowCartJourney, cartJourneyConfirmed, maxPages } = params;
+    const { url, businessName, businessCategory, targetMarket, primaryObjective, depth, siteType, mode, allowCartJourney, cartJourneyConfirmed, maxPages } = params;
     const targetUrl = url;
     const auditDepth = depth;
     const auditStartTime = Date.now();
@@ -1231,14 +1367,15 @@ async function runAudit(auditId: string, params: any) {
     // 1b. Call browser worker for rendered checks (if homepage accessible)
     let workerDurationMs = 0;
     let workerResults: Record<string, any> = {};
-    const scenariosRun = ['home', 'collection', 'product'];
+    // Only the homepage is evaluated by the worker today; collection/product/cart are not implemented.
+    const scenariosRun = ['home'];
     if (homepage) {
       logAudit(auditId, 'Initiating rendered checks...');
       try {
         const workerCheckIds = CATEGORY_RULESET.flatMap(c => c.checks.map(chk => chk.id));
         const workerRes = await callBrowserWorker({
           url: targetUrl,
-          scenario: allowCartJourney && cartJourneyConfirmed ? 'cart_path' : 'home',
+          scenario: 'home',
           checkIds: workerCheckIds,
           allowCartJourney: !!allowCartJourney && !!cartJourneyConfirmed
         });
@@ -1251,9 +1388,6 @@ async function runAudit(auditId: string, params: any) {
       } catch (workerErr: any) {
         logAudit(auditId, `Rendered check notice: ${workerErr.message || 'Worker skipped'}`);
       }
-    }
-    if (allowCartJourney && cartJourneyConfirmed) {
-      scenariosRun.push('cart_path');
     }
 
     // 2. Calculate scores deterministically
@@ -1323,195 +1457,61 @@ async function runAudit(auditId: string, params: any) {
     const inputDataString = JSON.stringify({ categoryResults: scoring.categoryResults, measuredFindings });
     const inputNumbers = new Set(inputDataString.match(/\b\d+(\.\d+)?\b/g) || []);
 
+    // AI is used for verdict wording only. It cannot add, remove or change findings or scores.
     const ai = getAI();
     if (ai && measuredFindings.length > 0 && !crawlErrorNotice) {
       try {
-        const prompt = `You are an eCommerce auditor. Synthesize an executive verdict for ${targetUrl} based on measured score of ${scoring.overallScore}/100 and potential uplift of +${scoring.scoreUplift} pts. Return JSON: {"executiveVerdict": {"headline": "Short punchy summary under 12 words", "summaryText": "Executive rationale under 35 words"}}`;
-        const response = await ai.models.generateContent({ model: 'gemini-3.1-flash-lite', contents: prompt, config: { responseMimeType: 'application/json' } });
+        const prompt = `You are an eCommerce auditor. Write a short executive verdict for ${targetUrl}. Measured score: ${scoring.overallScore}/100. Do not invent facts, figures or percentages. Return JSON only: {"executiveVerdict": {"headline": "under 12 words", "summaryText": "under 35 words"}}`;
+        const response = await ai.models.generateContent({ model: AI_MODEL, contents: prompt, config: { responseMimeType: 'application/json' } });
         const parsed = JSON.parse(response.text || '{}');
-        if (parsed.executiveVerdict?.headline && typeof parsed.executiveVerdict.headline === 'string') {
-          executiveVerdict = parsed.executiveVerdict;
+        const v = parsed?.executiveVerdict;
+        if (isShortText(v?.headline, 12) && isShortText(v?.summaryText, 35)) {
+          executiveVerdict = { headline: v.headline.trim(), summaryText: v.summaryText.trim() };
+          aiNarrativeStatus = 'generated';
+        } else {
+          logAudit(auditId, 'AI verdict rejected (wrong shape or length); using the measured verdict.');
         }
-        if (Array.isArray(parsed.findings) && parsed.findings.length > 0) {
-          const validatedAiFindings = parsed.findings.filter((f: any) => {
-            if (!f.affectedUrl || !crawledUrlSet.has(f.affectedUrl)) return false;
-            if (!f.observedEvidence || typeof f.observedEvidence !== 'string') return false;
-            const numbersInEvidence = f.observedEvidence.match(/\b\d+(\.\d+)?\b/g) || [];
-            const hasMatchingNumber = numbersInEvidence.some((num: string) => inputNumbers.has(num));
-            const hasQuotedInInput = inputDataString.includes(f.observedEvidence.trim());
-            return hasMatchingNumber || hasQuotedInInput;
-          });
-          if (validatedAiFindings.length > 0) {
-            activeFindings = validatedAiFindings.map((f: any) => ({ ...f, source: 'ai' as const }));
-            aiNarrativeStatus = 'generated';
-          }
-        }
-      } catch (aiErr) {
-        logAudit(auditId, 'AI narrative error, using measured findings.');
+      } catch {
+        logAudit(auditId, 'AI verdict unavailable; using the measured verdict.');
       }
     }
 
     const essentialCount = activeFindings.filter(f => f.severity === 'Essential').length;
     const isComparison = mode === 'comparison';
 
-    // Compute transparent Audit Execution Cost
-    const executionDurationMs = Date.now() - auditStartTime;
-    const pagesScannedCount = crawlResult.pagesInspected.length || 1;
-    const computeCostUsd = (executionDurationMs / 1000) * 0.000025;
-    const bandwidthCostUsd = pagesScannedCount * 0.00002;
-    const promptTokens = 450;
-    const completionTokens = 120;
-    const aiCostUsd = (promptTokens / 1_000_000 * 0.075) + (completionTokens / 1_000_000 * 0.30);
-    const totalExecutionCostUsd = computeCostUsd + bandwidthCostUsd + aiCostUsd;
-    const totalExecutionCostZar = Number((totalExecutionCostUsd * 18.5).toFixed(4));
-
-    const executionCost = {
-      totalEstimatedCostZar: totalExecutionCostZar,
-      totalEstimatedCostUsd: Number(totalExecutionCostUsd.toFixed(5)),
-      executionTimeMs: executionDurationMs,
-      crawlerBandwidthBytes: pagesScannedCount * 45000,
-      pagesScannedCount,
-      geminiInferenceTokens: {
-        promptTokens,
-        completionTokens,
-        modelName: 'gemini-3.1-flash-lite',
-        tokenCostUsd: Number(aiCostUsd.toFixed(6))
-      },
-      computeResourceCostUsd: Number(computeCostUsd.toFixed(6)),
-      commercialAuditBenchmarkZar: 18500,
-      costSavingsPercent: 99.99
+    // Measured run statistics only. No cost estimates: those were fabricated constants.
+    const runStats = {
+      executionTimeMs: Date.now() - auditStartTime,
+      pagesScannedCount: crawlResult.pagesInspected.length
     };
 
-    // Extract Agentic AI Commerce Readiness Checkpoints
-    const isServiceSite = (businessCategory || '').toLowerCase().includes('service') || 
-                          (businessCategory || '').toLowerCase().includes('agency') ||
-                          targetUrl.toLowerCase().includes('ecomplete');
-
-    const hasAnyPrice = crawlResult.pagesInspected.some(p => p.hasPrice);
-    const isHttpsSite = targetUrl.startsWith('https://');
-
-    // Schemas detected
-    const schemasFound: string[] = ['BreadcrumbList'];
-    if (hasAnyPrice) schemasFound.push('Offer');
-    if (!isServiceSite && hasAnyPrice) schemasFound.push('Product');
-    if (crawlResult.pagesInspected.some(p => p.buttons.length > 5)) schemasFound.push('AggregateRating');
-    const missingSchemas = ['Product', 'Offer', 'AggregateRating', 'FAQPage', 'BreadcrumbList'].filter(
-      s => !schemasFound.includes(s)
-    );
-
-    // AI Bots
-    const botsAllowed = (crawlResult.failedPages.length === 0);
-    const unblockedBots = botsAllowed 
-      ? ['GPTBot (OpenAI)', 'OAI-SearchBot (ChatGPT Search)', 'PerplexityBot (Perplexity)', 'Google-Extended (Gemini)'] 
-      : ['Google-Extended (Gemini)'];
-    const blockedBots = botsAllowed ? [] : ['GPTBot (OpenAI)', 'PerplexityBot (Perplexity)', 'OAI-SearchBot'];
-
-    const layer1 = hasAnyPrice ? (isServiceSite ? 78 : 82) : 50;
-    const layer2 = hasAnyPrice ? 85 : 55;
-    const layer3 = crawlResult.pagesInspected.some(p => (p.description?.length ?? 0) > 40) ? 80 : 52;
-    const layer4 = isHttpsSite ? 80 : 40;
-    const agenticScore = Math.round((layer1 * 0.3) + (layer2 * 0.25) + (layer3 * 0.25) + (layer4 * 0.2));
-
-    let readinessTier: 'Emerging' | 'Developing' | 'Agentic-Ready' | 'Autonomous Leader' = 'Developing';
-    if (agenticScore >= 80) readinessTier = 'Autonomous Leader';
-    else if (agenticScore >= 65) readinessTier = 'Agentic-Ready';
-    else if (agenticScore >= 45) readinessTier = 'Developing';
-    else readinessTier = 'Emerging';
-
+    // Agentic-commerce signals: measured on inspected pages and robots.txt only.
+    // No readiness score, layer scores, market figures or vendor capability claims.
+    const robots = crawlResult.robots;
+    const jsonLdTypesFound = Array.from(new Set(crawlResult.pagesInspected.flatMap((p: any) => p.jsonLdTypes || []))).sort();
+    const pagesWithJsonLd = crawlResult.pagesInspected.filter((p: any) => (p.jsonLdTypes || []).length > 0).length;
     const agenticCommerce = {
-      agenticScore,
-      readinessTier,
-      fourLayerArchitecture: {
-        layer1MasterData: {
-          score: layer1,
-          status: layer1 >= 70 ? ('pass' as const) : ('partial' as const),
-          gtinCoverage: isServiceSite ? 'Not applicable (Service Practice SKUs)' : '68% of inspected inventory',
-          mpnPresent: true,
-          details: 'Stable global trade identifiers (GTINs, MPNs) enable autonomous agents to uniquely match and deduplicate products without dropping up to 40% of catalog items.'
+      measured: {
+        jsonLd: {
+          typesFound: jsonLdTypesFound,
+          requiredTypes: [...REQUIRED_SCHEMA_TYPES],
+          missingRequiredTypes: REQUIRED_SCHEMA_TYPES.filter(t => !jsonLdTypesFound.includes(t)),
+          pagesWithJsonLd,
+          pagesInspected: crawlResult.pagesInspected.length
         },
-        layer2DynamicData: {
-          score: layer2,
-          status: layer2 >= 70 ? ('pass' as const) : ('partial' as const),
-          syncLatency: '< 15 mins (UCP Compliant Target)',
-          ucpCompliant: hasAnyPrice,
-          details: 'Dynamic operational pricing and real-time inventory endpoints prevent pricing mismatch errors and inventory overselling during machine-to-machine checkout execution.'
+        robots: {
+          status: robots.status,
+          aiBots: evaluateAiBotAccess(robots.text, AI_BOTS)
         },
-        layer3SemanticData: {
-          score: layer3,
-          status: layer3 >= 70 ? ('pass' as const) : ('partial' as const),
-          outcomeFocus: true,
-          contextScore: layer3,
-          details: 'Translates basic technical specifications into outcome-focused natural language descriptions answering user intent, target contexts, and resolution parameters.'
-        },
-        layer4TrustData: {
-          score: layer4,
-          status: layer4 >= 70 ? ('pass' as const) : ('partial' as const),
-          esgMetadata: true,
-          complianceDeclared: isHttpsSite,
-          details: 'Corporate governance credentials, verified POPIA compliance, and sustainability metadata enabling non-price constraint filtering by autonomous shopping agents.'
-        }
+        https: targetUrl.startsWith('https://')
       },
-      technicalCheckpoints: {
-        schemaOrgCoverage: {
-          score: Math.round((schemasFound.length / 5) * 100),
-          schemasFound,
-          missingSchemas,
-          details: 'JSON-LD structured data commands 89.4% market share of web-scraped agent inputs. Deploying all 5 mandatory schemas yields 3.1x higher citation frequency in Google AI Overviews and ChatGPT.'
-        },
-        aiCrawlerAccess: {
-          score: botsAllowed ? 95 : 40,
-          unblockedBots,
-          blockedBots,
-          robotsTxtStatus: botsAllowed ? 'Open to LLM crawlers' : 'Defensive WAF edge restriction detected'
-        },
-        platformFeedsAndMcp: {
-          mcpReady: true,
-          feedsConfigured: ['Google Merchant Center (UCP)', 'Shopify Catalog API / Agentic Plan', 'Model Context Protocol (MCP Server)'],
-          details: 'Direct API pipelines and Model Context Protocol (MCP) servers securely expose Product Information Management (PIM) and Order Management (OMS) endpoints directly to external AI workforces.'
-        },
-        paymentPrimitives: {
-          sptReady: isHttpsSite,
-          protocolSupport: ['ACP (Agentic Commerce Protocol)', 'AP2 (Google Agent Payments)', 'Commerce MCP'],
-          kyaSecurityStatus: 'KYA Real-Time Identity Filter Active (Cryptographic signature + mandate scoping)'
-        }
-      },
-      shareOfModelEstimate: {
-        projectedCitationRank: 'Top-3 Ranking in Category Prompts',
-        projectedConversionLift: '+32% higher intent conversion vs legacy organic search',
-        projectedMarketValueShare: 'Positioned to capture share of the $300B - $500B Agentic Commerce market by 2030'
-      },
-      ninetyDayRoadmap: {
-        phase1Days1to30: {
-          title: 'Phase 1: Days 1–30 — Catalog Audit & Discovery Baseline',
-          focus: 'Data Mapping, Schema Validation & Crawler Unblocking',
-          deliverables: [
-            'System Data Mapping across ERP, PIM, OMS, WMS, and DAM repositories',
-            'Deep JSON-LD schema audit isolating missing fields across product templates',
-            'Edge security review in WAF and robots.txt to explicitly unblock GPTBot, PerplexityBot, and Google-Extended',
-            'Segmentation of top-selling SKUs / core practice lines for priority pilot cohort'
-          ]
-        },
-        phase2Days31to60: {
-          title: 'Phase 2: Days 31–60 — Data Standardisation, Hygiene & Enrichment',
-          focus: 'GTIN/MPN Population, Outcome-Focused Descriptions & PIM Mapping',
-          deliverables: [
-            '100% population of missing GTIN, MPN, and universal brand identifiers',
-            'Enforcement of standardized attribute taxonomies and measurement units',
-            'Generation of natural-language, outcome-focused semantic descriptions for pilot items',
-            'Google Merchant Center feed enrichment (3+ lifestyle images, delivery SLAs, UCP attributes)'
-          ]
-        },
-        phase3Days61to90: {
-          title: 'Phase 3: Days 61–90 — Technical Infrastructure, Payment Integration & Deployment',
-          focus: 'Live API Feeds, Shared Payment Tokens (SPTs) & KYA Security Integration',
-          deliverables: [
-            'Deployment of live API webhooks maintaining inventory/pricing sync latency under 15 minutes',
-            'Integration of Shared Payment Tokens (SPTs) via Stripe Agentic Commerce Suite or Visa Intelligent Commerce',
-            'Configuration of Know Your Agent (KYA) real-time identity filter within WAF/API gateway layers',
-            'Direct feed activation into OpenAI product feeds, Google Gemini UCP, and Perplexity Sonar API'
-          ]
-        }
-      }
+      notMeasured: [
+        'GTIN and MPN catalogue coverage (needs catalogue or feed access)',
+        'Live inventory and price sync latency (needs API or feed access)',
+        'Agent checkout and payment protocol readiness (needs merchant configuration)',
+        'Share of AI-assistant answers or citations (needs external query testing)',
+        'Conversion or revenue impact (needs analytics access)'
+      ]
     };
 
     const auditRecord = {
@@ -1524,6 +1524,7 @@ async function runAudit(auditId: string, params: any) {
       primaryObjective: primaryObjective || 'sales',
       primaryKeyword: params.primaryKeyword,
       depth: auditDepth,
+      siteType: siteType || (businessCategory?.toLowerCase().includes('service') || businessCategory?.toLowerCase().includes('agency') || businessCategory?.toLowerCase().includes('consulting') ? 'service' : 'ecommerce'),
       schemaVersion: SCHEMA_VERSION,
       rulesetVersion: scoring.rulesetVersion,
       overallScore: scoring.overallScore,
@@ -1533,7 +1534,7 @@ async function runAudit(auditId: string, params: any) {
       measurements: scoring.measurements,
       industryBenchmarks: calculateIndustryBenchmarks(scoring.categoryResults),
       pagesInspected: crawlResult.pagesInspected,
-      crawlSummary: { discovered: crawlResult.pagesDiscoveredCount, inspected: crawlResult.pagesInspected.length, failed: crawlResult.failedPages.length },
+      crawlSummary: { discovered: crawlResult.pagesDiscoveredCount, inspected: crawlResult.pagesInspected.length, failed: crawlResult.failedPages.length, robotsBlocked: crawlResult.robotsBlocked.length },
       metrics: {
         sessions: { value: 'Requires Analytics Integration', status: 'customer_data_required' },
         pageSpeed: { value: crawlResult.pagesInspected.length > 0 ? `${Math.round(crawlResult.pagesInspected.reduce((a, b) => a + b.loadTimeMs, 0) / (crawlResult.pagesInspected.length || 1))}ms` : 'N/A', status: 'measured' },
@@ -1547,10 +1548,10 @@ async function runAudit(auditId: string, params: any) {
       type: isComparison ? ('competitor' as const) : ('prospect' as const),
       workerDurationMs,
       scenariosRun,
-      cartJourneyRun: !!allowCartJourney && !!cartJourneyConfirmed,
+      cartJourneyRun: false, // not implemented; see docs/KNOWN_LIMITATIONS.md item 5
       auditError: crawlErrorNotice,
       agenticCommerce,
-      executionCost,
+      runStats,
       evaluationNotice: crawlErrorNotice ? {
         type: 'error' as const,
         title: 'Crawl Access Restriction Detected',
@@ -1565,6 +1566,7 @@ async function runAudit(auditId: string, params: any) {
       } : undefined
     };
 
+    checkCancelled(auditId);
     const audits = readStorage(AUDITS_FILE);
     audits.unshift(auditRecord);
     writeStorage(AUDITS_FILE, audits);
@@ -1599,6 +1601,15 @@ async function runAudit(auditId: string, params: any) {
       result: { audit: auditRecord, lead: leadRecord } 
     });
   } catch (err: any) {
+    if (err?.message === 'cancelled') {
+      logAudit(auditId, 'Audit cancelled; no record was persisted.');
+      return;
+    }
+    if (err instanceof StorageCorruptError) {
+      logAudit(auditId, `Audit aborted: ${err.message}`);
+      auditStatusMap.set(auditId, { status: 'failed', logs: auditStatusMap.get(auditId)!.logs, error: 'storage_corrupt' });
+      return;
+    }
     logAudit(auditId, `Evaluation notice: ${err.message}. Building diagnostic evaluation report...`);
     const scoring = calculateScores({
       pagesInspected: [],
@@ -1719,8 +1730,10 @@ app.post('/api/audit', auditLimiter, async (req: Request, res: Response) => {
     maxPages: cappedMaxPages
   };
 
+  pruneAuditStatus();
   const auditId = `AUD-${crypto.randomUUID()}`;
   auditStatusMap.set(auditId, { status: 'running', logs: ['[SYSTEM] Audit queued.'] });
+  auditCreatedAt.set(auditId, Date.now());
   
   runAudit(auditId, auditParams).catch(console.error);
 
@@ -1746,7 +1759,7 @@ app.post('/api/pitch', pitchLimiter, async (req: Request, res: Response) => {
       {
         subject: `Storefront Inspection Findings: ${brandName || domain}`,
         angle: 'Deterministic Storefront Performance',
-        hook: `Our technical crawl of ${domain} assessed performance across 12 criteria. While ${resolvedStrongest} performed well, measured gaps were identified in ${resolvedWeakest}.`
+        hook: `Our technical crawl of ${domain} assessed performance across our automated storefront checklist. While ${resolvedStrongest} performed well, measured gaps were identified in ${resolvedWeakest}.`
       },
       {
         subject: `Audit Results & Recommendations: ${brandName || domain}`,
@@ -1857,7 +1870,7 @@ Return JSON matching:
     };
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-lite',
+      model: AI_MODEL,
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
@@ -1902,12 +1915,12 @@ app.post('/api/executive-synopsis', async (req: Request, res: Response) => {
   Instructions:
   1. The synopsis must be exactly two paragraphs.
   2. The first paragraph should forensicly summarize the current state, identifying specific friction points in the user journey (e.g. mobile responsiveness, checkout friction, SEO gaps).
-  3. The second paragraph should persuasively outline the commercial opportunity and the 'Smollan Advantage', explaining how our proprietary 12-factor remediation and agentic AI readiness will recover lost revenue and future-proof the storefront.
+  3. The second paragraph should persuasively outline the commercial opportunity and the 'Smollan Advantage', explaining the remediation path for the measured findings. Do not quantify revenue or conversion impact.
   4. Use a tone of authority, professionalism, and commercial intelligence. Do not use markdown bolding or bullets.`;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3.8-flash',
+      model: AI_MODEL,
       contents: prompt,
     });
     res.json({ synopsis: response.text });
@@ -1921,8 +1934,61 @@ app.post('/api/executive-synopsis', async (req: Request, res: Response) => {
   }
 });
 
+app.post('/api/qa-audit', async (req: Request, res: Response) => {
+  try {
+    const { url, html, pages, auditId } = req.body;
+    let pagesToAudit: { url: string; html: string }[] = [];
+
+    if (Array.isArray(pages) && pages.length > 0) {
+      pagesToAudit = pages;
+    } else if (typeof html === 'string' && html.trim().length > 0) {
+      pagesToAudit = [{ url: url || 'https://target.local', html }];
+    } else if (typeof url === 'string' && url.trim().length > 0) {
+      const scraped = await scrapeRenderedPageWithFirecrawl(url.trim(), 10000);
+      pagesToAudit = [{ url: scraped.sourceUrl || url.trim(), html: scraped.html }];
+    } else if (typeof auditId === 'string' && auditId.trim().length > 0) {
+      const audits = readStorage(AUDITS_FILE);
+      const audit = audits.find(a => a.id === auditId);
+      if (audit?.url) {
+        const scraped = await scrapeRenderedPageWithFirecrawl(audit.url, 10000);
+        pagesToAudit = [{ url: scraped.sourceUrl || audit.url, html: scraped.html }];
+      }
+    }
+
+    if (pagesToAudit.length === 0) {
+      return res.status(400).json({ error: 'Please provide page source HTML, target URL, or active audit ID to analyze.' });
+    }
+
+    const report = auditPageSource(pagesToAudit, url);
+    res.json(report);
+  } catch (err: any) {
+    console.error('QA Source Audit error:', err);
+    res.status(500).json({ error: err.message || 'QA source audit failed' });
+  }
+});
+
+app.post('/api/qa-audit/export-excel', async (req: Request, res: Response) => {
+  try {
+    const report = req.body.report || req.body;
+    if (!report || !Array.isArray(report.findings)) {
+      return res.status(400).json({ error: 'Invalid audit report data for Excel export.' });
+    }
+    const buffer = await generateQaExcelWorkbook(report);
+    const filename = `Technical-Website-QA-Audit-Report-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('Content-Length', buffer.length);
+    res.send(buffer);
+  } catch (err: any) {
+    console.error('Excel export error:', err);
+    res.status(500).json({ error: err.message || 'Failed to generate Excel workbook' });
+  }
+});
+
 // Vite middleware integration for development
-if (process.env.NODE_ENV !== 'production') {
+if (IS_TEST) {
+  // Tests import this module directly; do not start Vite.
+} else if (process.env.NODE_ENV !== 'production') {
   const vite = await createViteServer({
     server: { middlewareMode: true, hmr: process.env.DISABLE_HMR !== 'true' },
     appType: 'spa'
@@ -1936,6 +2002,10 @@ if (process.env.NODE_ENV !== 'production') {
   });
 }
 
-app.listen(PORT, '0.0.0.0', () => {
-  console.log(`Smollan Digital Commerce Audit platform running at http://0.0.0.0:${PORT}`);
-});
+if (!IS_TEST) {
+  app.listen(PORT, '0.0.0.0', () => {
+    console.log(`Smollan Digital Commerce Audit platform running at http://0.0.0.0:${PORT}`);
+  });
+}
+
+export { app, auditCreatedAt as __auditCreatedAtForTests };

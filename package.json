@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "tsx server.ts",
+    "start:prod": "npm run build && cross-env NODE_ENV=production tsx server.ts",
     "dev": "tsx server.ts",
     "build": "vite build",
     "preview": "vite preview",
@@ -38,6 +39,7 @@
     "@types/react-dom": "^19.3.0",
     "@types/supertest": "^7.2.1",
     "autoprefixer": "^10.4.21",
+    "cross-env": "^7.0.3",
     "esbuild": "^0.28.0",
     "supertest": "^7.3.1",
     "tailwindcss": "^4.3.3",

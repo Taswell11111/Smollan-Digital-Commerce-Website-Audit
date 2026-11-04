@@ -58,6 +58,9 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
   // Detect website archetype dynamically based on Business Model & Industry
   const detectArchetype = (audit?: AuditRecord | null): SiteArchetype => {
     if (!audit) return 'b2b_service';
+
+    if (audit.siteType === 'service') return 'b2b_service';
+    if (audit.siteType === 'ecommerce') return 'b2c_retail';
     
     const cat = (audit.businessCategory || '').toLowerCase();
     const name = (audit.businessName || '').toLowerCase();
@@ -178,15 +181,26 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
     'Solution';
 
   // Identify a real product page from the audit for B2C context
-  const realProductPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'product') || currentAudit?.pagesInspected?.[0];
+  const realProductPage = 
+    currentAudit?.pagesInspected?.find(p => p.pageType === 'product') ||
+    currentAudit?.pagesInspected?.find(p => p.hasAddToCart && p.hasPrice) ||
+    currentAudit?.pagesInspected?.find(p => p.hasAddToCart || p.hasPrice) ||
+    currentAudit?.pagesInspected?.find(p => p.pageType !== 'homepage') ||
+    currentAudit?.pagesInspected?.[0];
   const productTitle = realProductPage?.title || `${brandName} Signature ${practicalKeyword}`;
   const productUrl = realProductPage?.url || brandUrl;
   const productScreenshot = realProductPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(productUrl)}?w=1200`;
   const productFallbackScreenshot = realProductPage?.fallbackScreenshotUrl || `https://image.thum.io/get/width/1200/crop/800/${encodeURIComponent(productUrl)}`;
   
   // Identify category and cart pages
-  const realCategoryPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'category');
-  const realCartPage = currentAudit?.pagesInspected?.find(p => p.pageType === 'cart' || p.pageType === 'checkout');
+  const realCategoryPage = 
+    currentAudit?.pagesInspected?.find(p => p.pageType === 'category') ||
+    currentAudit?.pagesInspected?.find(p => p.pageType !== 'homepage' && p.pageType !== 'product') ||
+    currentAudit?.pagesInspected?.[0];
+  const realCartPage = 
+    currentAudit?.pagesInspected?.find(p => p.pageType === 'cart' || p.pageType === 'checkout') ||
+    currentAudit?.pagesInspected?.find(p => p.hasAddToCart) ||
+    currentAudit?.pagesInspected?.[0];
   const categoryScreenshot = realCategoryPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(realCategoryPage?.url || brandUrl)}?w=1200`;
   const cartScreenshot = realCartPage?.screenshotUrl || `https://s0.wp.com/mshots/v1/${encodeURIComponent(realCartPage?.url || brandUrl)}?w=1200`;
   const categoryFallbackScreenshot = realCategoryPage?.fallbackScreenshotUrl || `https://image.thum.io/get/width/1200/crop/800/${encodeURIComponent(realCategoryPage?.url || brandUrl)}`;
@@ -314,7 +328,7 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
     <div class="meta-item"><strong>${isB2B ? 'Practice Identifier' : 'SKU Identifier'}</strong><span>${isB2B ? 'PRAC-ECC-ARCH-2026' : `SKU-${brandInitials}-2026`}</span></div>
     <div class="meta-item"><strong>${isB2B ? 'Squad Availability' : 'Units Left'}</strong><span>${isB2B ? `${b2bSlotsLeft} Squad Slots (Midrand & CT)` : `${unitsLeft} units (Midrand DC)`}</span></div>
     <div class="meta-item"><strong>${isB2B ? 'Enterprise NPS' : 'Customer Consensus'}</strong><span>${isB2B ? '4.9 / 5.0 (24 Engagements)' : '4.8 / 5.0 (128 reviews)'}</span></div>
-    <div class="meta-item"><strong>${isB2B ? 'Delivery SLA' : 'Dispatch SLA'}</strong><span>${isB2B ? 'Sub-2.0s LCP Target & 99.99% Uptime' : '24h Courier Delivery'}</span></div>
+    <div class="meta-item"><strong>${isB2B ? 'Delivery SLA' : 'Dispatch SLA'}</strong><span>${isB2B ? 'Sub-2.0s LCP Target (to be agreed in scope)' : '24h Courier Delivery'}</span></div>
   </div>
 
   <h3>Comprehensive Operational &amp; Technical Attributes</h3>
@@ -326,7 +340,7 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
     <tr><td>Core Web Vitals Guarantee</td><td>Contractual SLA targeting LCP &lt; 2.0s, CLS &lt; 0.05, and INP &lt; 150ms on mobile viewports</td></tr>
     <tr><td>Payment Orchestration</td><td>Multi-currency South African Gateway integration (Ozow, PayFlex, Peach Payments, PayFast)</td></tr>
     <tr><td>Inventory &amp; ERP Sync</td><td>Automated middleware for omnichannel warehouse routing and real-time inventory updates</td></tr>
-    <tr><td>Security &amp; Regulatory Standard</td><td>POPIA Compliant, 3D Secure 2.2, zero third-party script leakage</td></tr>
+    <tr><td>Security &amp; Regulatory Standard</td><td>POPIA requirements to be confirmed in scope, 3D Secure 2.2, minimal third-party scripts</td></tr>
     ` : `
     <tr><td>Scarcity Threshold Widget</td><td>Active · Real-time inventory deduction alert (${unitsLeft} units left)</td></tr>
     <tr><td>Product Profile (PP) Compliance</td><td>Standardized spec sheet, material composition &amp; care instructions</td></tr>
@@ -894,8 +908,8 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                       </div>
                       <div className="grid grid-cols-2 gap-2.5 text-[11px] text-slate-600 pt-1">
                         <div>Delivery Model: <strong className="text-slate-900 block font-bold">Senior Dedicated Squads</strong></div>
-                        <div>Core SLA: <strong className="text-emerald-700 block font-bold">Sub-2.0s Mobile LCP</strong></div>
-                        <div>Compliance: <strong className="text-slate-900 block font-bold">POPIA &amp; 3D Secure 2.2</strong></div>
+                        <div>Performance target: <strong className="text-emerald-700 block font-bold">Sub-2.0s Mobile LCP</strong></div>
+                        <div>Compliance scope: <strong className="text-slate-900 block font-bold">POPIA (to confirm) &amp; 3D Secure 2.2</strong></div>
                         <div>Availability: <strong className="text-slate-900 block font-bold">Midrand &amp; Cape Town Hubs</strong></div>
                       </div>
                     </div>
@@ -947,7 +961,7 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                           <span className="text-2xl font-black text-[#002157]">R 45,000</span>
                           <span className="text-slate-500 text-xs font-sans">/ 2-Week Accelerated Sprint</span>
                           <span className="bg-emerald-100 text-emerald-800 font-black text-[10px] px-2.5 py-0.5 rounded ml-auto">
-                            TYPICAL ROI: +30% CONVERSION LIFT
+                            ROI: TO BE CONFIRMED FROM YOUR BASELINE
                           </span>
                         </div>
                       </div>
@@ -1059,7 +1073,7 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                           </span>
                           <span className="flex items-center gap-1">
                             <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
-                            Mutual NDA &amp; POPIA Protected
+                            Mutual NDA; POPIA scope to be confirmed
                           </span>
                         </div>
                       </div>
@@ -1109,7 +1123,7 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                       {
                         id: 'item-3',
                         name: 'Custom South African Payment Gateway Orchestration',
-                        category: 'Checkout & POPIA',
+                        category: 'Checkout & data protection',
                         price: b2bItem3Price,
                         tag: 'Payments'
                       }
@@ -1407,14 +1421,14 @@ export const EnhancementSandbox: React.FC<EnhancementSandboxProps> = ({ currentA
                   {
                     title: 'Headless Storefront Engineering & Core Web Vitals Acceleration',
                     scope: '4-Week Implementation Sprint',
-                    deliverables: ['Sub-2.0s Mobile LCP Guarantee', 'React 19 / Next.js Storefront', 'Edge Middleware Caching'],
+                    deliverables: ['Sub-2.0s Mobile LCP Target', 'React 19 / Next.js Storefront', 'Edge Middleware Caching'],
                     impact: '< 1.8s Page Load Nationwide',
                     tech: ['Next.js', 'Vercel', 'Tailwind', 'Cloudflare']
                   },
                   {
                     title: 'Omnichannel Logistics, Inventory & ERP Synchronization',
                     scope: '6-Week Integration Sprint',
-                    deliverables: ['Multi-DC Real-time Inventory Feeds', 'Automated Courier SLA Routing', 'POPIA-Compliant Customer Portals'],
+                    deliverables: ['Multi-DC Real-time Inventory Feeds', 'Automated Courier SLA Routing', 'Customer Portals (POPIA scope to confirm)'],
                     impact: '99.9% Stock Accuracy',
                     tech: ['Syspro', 'SAP', 'ShipLogic', 'REST APIs']
                   },

@@ -104,10 +104,10 @@ const getB2BReviews = (brandName: string): ReviewItem[] => [
     date: '18 April 2024',
     verified: true,
     sizePurchased: 'Headless Storefront & Core Web Vitals Architecture',
-    fitFeedback: '+34% Mobile CRO Lift',
+    fitFeedback: 'Mobile CRO lift',
     title: 'Engineered a massive lift in mobile conversion with zero downtime',
     comment:
-      `${brandName} completely overhauled our storefront and checkout pathways. Their technical squads solved severe Core Web Vitals lag and re-architected our cart drawer. Our mobile conversion rate lifted significantly within 60 days.`,
+      `${brandName} completely overhauled our storefront and checkout pathways. Their technical squads solved severe Core Web Vitals lag and re-architected our cart drawer. Our mobile conversion rate lifted over the engagement.`,
     helpfulCount: 28,
   },
   {
@@ -118,7 +118,7 @@ const getB2BReviews = (brandName: string): ReviewItem[] => [
     date: '02 May 2024',
     verified: true,
     sizePurchased: 'Conversion Diagnostic & UX Remediation Sprint',
-    fitFeedback: '100% SLA Delivery',
+    fitFeedback: 'SLA delivery',
     title: 'Engineering depth and commercial CRO rigor that paid for itself in weeks',
     comment:
       `The conversion diagnostic was eye-opening. Rather than presenting generic slides, ${brandName} delivered drop-in Next.js code fixes that eliminated drop-off in our multi-currency checkout. The commercial ROI paid for the sprint immediately.`,
@@ -146,7 +146,7 @@ const getB2BReviews = (brandName: string): ReviewItem[] => [
     date: '11 June 2024',
     verified: true,
     sizePurchased: 'B2B Catalog & Ordering Architecture',
-    fitFeedback: '+22% AOV Growth',
+    fitFeedback: 'AOV growth',
     title: 'Streamlined our B2B buyer ordering and self-service account flow',
     comment:
       `${brandName} modernized our B2B ordering catalog and self-service client portal. Onboarding friction dropped immediately and average order value grew with automated compliance.`,
@@ -176,7 +176,7 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
   const [formAuthor, setFormAuthor] = useState('');
   const [formRoleOrCity, setFormRoleOrCity] = useState('');
   const [formScopeOrSize, setFormScopeOrSize] = useState(isB2B ? 'CRO Diagnostic Sprint' : 'UK 8');
-  const [formOutcome, setFormOutcome] = useState(isB2B ? '+25% Conversion Lift' : 'True to Size');
+  const [formOutcome, setFormOutcome] = useState(isB2B ? '' : 'True to Size');
   const [formTitle, setFormTitle] = useState('');
   const [formComment, setFormComment] = useState('');
   const [submittedMessage, setSubmittedMessage] = useState(false);
@@ -245,7 +245,7 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
               <MessageSquare className="w-5 h-5 text-[#00e5ff]" />
             )}
             <h3 className="text-xl sm:text-2xl font-black text-slate-900 tracking-tight">
-              {isB2B ? 'Verified Enterprise Client Endorsements' : 'Verified Customer Reviews & Social Proof'}
+              {isB2B ? 'Illustrative sample testimonials (not real client data)' : 'Illustrative sample reviews (not real customer data)'}
             </h3>
           </div>
           <p className="text-xs text-slate-500">
@@ -381,7 +381,7 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
                 {isB2B ? (
                   <input
                     type="text"
-                    placeholder="e.g. +34% Conversion Lift"
+                    placeholder="e.g. measured outcome after launch"
                     value={formOutcome}
                     onChange={(e) => setFormOutcome(e.target.value)}
                     className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-[#002157]"
@@ -407,7 +407,7 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
               <input
                 type="text"
                 required
-                placeholder={isB2B ? 'e.g. Delivered +30% mobile revenue lift within 60 days' : 'e.g. Excellent build quality, true to South African fit'}
+                placeholder={isB2B ? 'e.g. Delivered a measurable mobile improvement after launch' : 'e.g. Excellent build quality, true to South African fit'}
                 value={formTitle}
                 onChange={(e) => setFormTitle(e.target.value)}
                 className="w-full px-3.5 py-2.5 bg-white border border-slate-300 rounded-xl text-xs font-medium text-slate-900 focus:outline-none focus:border-[#002157]"
@@ -561,7 +561,7 @@ export const ProductReviews: React.FC<ProductReviewsProps> = ({
                   {rev.verified && (
                     <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100/90 px-2 py-0.5 rounded-full">
                       <CheckCircle className="w-3 h-3 text-emerald-600" />
-                      <span>{isB2B ? 'Verified Enterprise Client' : 'Verified Buyer'}</span>
+                      <span>{isB2B ? 'Sample entry' : 'Sample entry'}</span>
                     </span>
                   )}
                   <span className="text-slate-300">·</span>

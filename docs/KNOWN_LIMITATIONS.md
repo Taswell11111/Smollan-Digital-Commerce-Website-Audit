@@ -14,14 +14,15 @@ This document outlines the known architectural and operational limitations of th
 4. **Corpus Benchmarks Sample Size**:
    - Industry corpus benchmarks require a minimum threshold of 100 audited stores per platform and metric before percentile bands (p25, p50, p75) are displayed. Until this sample size is reached, benchmarks display "insufficient sample".
 
-5. **Simulated Cart & Checkout Journey**:
-   - The cart and checkout journey browser worker simulation operates on client-side safety guardrails and does not complete live payment authorization or place real commercial orders. Explicit authorization confirmation is required from the user before execution.
+5. **Cart & Checkout Journey Not Implemented**:
+   - The browser worker only evaluates the homepage. The `cart_path` scenario is accepted by the API but not executed, and audits report `cartJourneyRun: false` and `scenariosRun: ['home']`.
+   - Collection and product-page rendering are likewise not run by the worker.
 
 6. **Network Environment Restrictions**:
    - Automated browser rendering and crawling depend on target storefront availability and outbound network connectivity. Firewalls or Web Application Firewalls (WAF) blocking automated user-agents may result in partial scan results or rate-limiting by the target domain.
 
-7. **No access control**:
-   - All `/api` routes are unauthenticated.
-   - Endpoints such as `/api/audit` and `/api/pitch` trigger paid Google Gemini AI API calls.
-   - Endpoints such as `/api/audits` and `/api/leads` return stored prospect and audit data to any caller without credential verification.
-   - This is a known limitation and must be addressed with appropriate authentication, authorization, and network isolation before any shared or public multi-tenant deployment.
+7. **Access control is a single shared token**:
+   - When `API_TOKEN` is set, every `/api` route requires it, either as a bearer token or through a session cookie created at `POST /api/session`. Production refuses to start without `API_TOKEN`.
+   - There are no per-user accounts, roles or audit trail. Anyone holding the token has full access.
+   - Sessions are in memory, so a restart logs everyone out. Login attempts are rate limited per IP, and the limiter's counters are also in memory.
+   - Rotate `API_TOKEN` if it is ever shared outside the team. Per-user accounts are needed before wider rollout.

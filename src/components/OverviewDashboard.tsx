@@ -767,7 +767,7 @@ export const OverviewDashboard: React.FC<OverviewDashboardProps> = ({
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">
                   <span className="text-[10px] uppercase font-bold text-slate-400">Prospect Storefront Score</span>
                   <div className="text-2xl font-black text-slate-900">{activeAudit.overallScore}/100</div>
-                  <span className="text-[11px] text-slate-500">Audited across 12 criteria</span>
+                  <span className="text-[11px] text-slate-500">Audited across the full automated checklist</span>
                 </div>
 
                 <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1">

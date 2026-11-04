@@ -10,14 +10,26 @@ import { FindingsExplorer } from './components/FindingsExplorer';
 import { LeadQualification } from './components/LeadQualification';
 import { EmailPitchStudio } from './components/EmailPitchStudio';
 import { SavedAudits } from './components/SavedAudits';
+import { LoginGate } from './components/LoginGate';
 import { SettingsCatalogue } from './components/SettingsCatalogue';
 import { UrlVerificationModal } from './components/UrlVerificationModal';
 import { SalesDashboard } from './components/SalesDashboard';
+import { SourceQaAudit } from './components/SourceQaAudit';
 import { ThemeOption } from './components/ThemeSelector';
 import { AuditRecord, LeadRecord, UrlInspectionResult } from './types';
 import { calculateScores } from './utils/scoring';
 
 export default function App() {
+  const [sessionState, setSessionState] = useState<'checking' | 'authenticated' | 'locked'>('checking');
+  useEffect(() => {
+    fetch('/api/session')
+      .then(res => setSessionState(res.ok ? 'authenticated' : 'locked'))
+      .catch(() => setSessionState('locked'));
+    // main.tsx fires this when any /api call returns 401 (session expired).
+    const onLocked = () => setSessionState('locked');
+    window.addEventListener('smollan:locked', onLocked);
+    return () => window.removeEventListener('smollan:locked', onLocked);
+  }, []);
   const [activeTab, setActiveTab] = useState<string>('new_audit');
   const [dashboardMode, setDashboardMode] = useState<'overview' | 'detailed'>('overview');
   const [currentAudit, setCurrentAudit] = useState<AuditRecord | null>(null);
@@ -55,9 +67,11 @@ export default function App() {
     primaryObjective: string;
     primaryKeyword?: string;
     depth: 'quick' | 'standard' | 'deep';
+    siteType?: 'ecommerce' | 'service';
   } | null>(null);
 
   useEffect(() => {
+    if (sessionState !== 'authenticated') return;
     setIsLoading(true);
     // Fetch initial saved audits & leads
     Promise.all([
@@ -77,7 +91,7 @@ export default function App() {
         }
       }
     }).finally(() => setIsLoading(false));
-  }, []);
+  }, [sessionState]);
 
   const handleInitiateAuditVerification = async (params: {
     url: string;
@@ -87,6 +101,7 @@ export default function App() {
     primaryObjective: string;
     primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
+    siteType?: 'ecommerce' | 'service';
   }) => {
     setPendingAuditParams(params);
     setIsVerificationOpen(true);
@@ -234,7 +249,7 @@ export default function App() {
       },
       executiveVerdict: {
         headline: `Diagnostic Notice: Storefront access failure (${errorMsg})`,
-        summaryText: `Storefront evaluated at 0/100 due to crawler or connection block. Remediate WAF allowlisting and server gateway errors to recover up to 90/100.`
+        summaryText: `Storefront evaluated at 0/100 due to crawler or connection block. Remediate WAF allowlisting and server gateway errors to improve the overall score.`
       },
       findings: [{
         id: 'MSR-00',
@@ -289,6 +304,7 @@ export default function App() {
     primaryObjective: string;
     primaryKeyword: string;
     depth: 'quick' | 'standard' | 'deep';
+    siteType: 'ecommerce' | 'service';
     allowCartJourney: boolean;
     cartJourneyConfirmed: boolean;
   }) => {
@@ -341,7 +357,7 @@ export default function App() {
     }
   };
 
-  // Step 2: Confirmation callback to launch the full 12-factor crawl and scoring (from modal if open)
+  // Step 2: Confirmation callback to launch the full crawl and scoring (from modal if open)
   const handleConfirmAudit = async (
     selectedDepth: 'quick' | 'standard' | 'deep',
     allowCartJourney: boolean,
@@ -403,6 +419,13 @@ export default function App() {
       setIsLoading(false);
     }
   };
+
+  if (sessionState === 'checking') {
+    return <div className="min-h-screen flex items-center justify-center text-slate-500 text-sm font-sans">Loading…</div>;
+  }
+  if (sessionState === 'locked') {
+    return <LoginGate onAuthenticated={() => setSessionState('authenticated')} />;
+  }
 
   return (
     <div 
@@ -497,6 +520,10 @@ export default function App() {
           <AuditReport audit={currentAudit} onNavigateTab={setActiveTab} />
         )}
 
+        {activeTab === 'qa_audit' && (
+          <SourceQaAudit currentAudit={currentAudit} onNavigateTab={setActiveTab} />
+        )}
+
         {activeTab === 'sandbox' && (
           <EnhancementSandbox currentAudit={currentAudit} />
         )}
@@ -541,7 +568,7 @@ export default function App() {
         >
           <div className="max-w-7xl mx-auto px-4 space-y-2">
             <p className="font-bold text-slate-300">Smollan Digital Commerce · Connected Commerce Intelligence & Growth Audit Platform</p>
-            <p className="text-slate-400">Deterministic 12-factor scoring engine, SSRF-protected sandboxed crawler, and Google Gemini AI enterprise synthesis.</p>
+            <p className="text-slate-400">Deterministic weighted scoring engine, SSRF-protected sandboxed crawler, and Google Gemini AI enterprise synthesis.</p>
             <p className="text-[11px] text-slate-500">Connecting people, brands, and commerce across 60+ global markets.</p>
           </div>
         </footer>
@@ -557,6 +584,7 @@ export default function App() {
         onReverify={handleReverifyUrl}
         onUpdateInspection={(newData) => setInspectionResult(prev => prev ? { ...prev, ...newData } : null)}
         currentDepth={pendingAuditParams?.depth || 'standard'}
+        siteType={pendingAuditParams?.siteType}
       />
     </div>
   );

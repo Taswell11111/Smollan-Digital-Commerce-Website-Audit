@@ -1,80 +1,53 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
-import crypto from 'crypto';
+// Import the production module, not a copy of it.
+import { readStorage, writeStorage, StorageCorruptError } from '../server/storage';
 
-describe('Storage Safety & Concurrency Tests', () => {
-  const testDir = path.join(process.cwd(), 'data-test');
-  const testFile = path.join(testDir, 'test-storage.json');
+describe('storage (production module)', () => {
+  let dir: string;
+  let file: string;
 
   beforeEach(() => {
-    if (!fs.existsSync(testDir)) {
-      fs.mkdirSync(testDir, { recursive: true });
-    }
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-test-'));
+    file = path.join(dir, 'audits.json');
   });
 
   afterEach(() => {
-    if (fs.existsSync(testDir)) {
-      fs.rmSync(testDir, { recursive: true, force: true });
-    }
+    fs.rmSync(dir, { recursive: true, force: true });
   });
 
-  it('missing file returns empty array', () => {
-    const readStorageTest = (file: string) => {
-      if (!fs.existsSync(file)) return [];
-      return JSON.parse(fs.readFileSync(file, 'utf-8'));
-    };
-    expect(readStorageTest(testFile)).toEqual([]);
+  it('returns [] when the file does not exist', () => {
+    expect(readStorage(file)).toEqual([]);
   });
 
-  it('corrupt file throws error and renames file without overwriting', () => {
-    fs.writeFileSync(testFile, '{ invalid json');
-    const readStorageTest = (file: string) => {
-      if (!fs.existsSync(file)) return [];
-      try {
-        const content = fs.readFileSync(file, 'utf-8');
-        return JSON.parse(content);
-      } catch (e: any) {
-        const corruptPath = `${file}.corrupt-${Date.now()}.json`;
-        fs.renameSync(file, corruptPath);
-        throw new Error(`Corrupt: ${e.message}`);
-      }
-    };
-
-    expect(() => readStorageTest(testFile)).toThrowError(/Corrupt/);
-    expect(fs.existsSync(testFile)).toBe(false);
-    const files = fs.readdirSync(testDir);
-    expect(files.some(f => f.includes('.corrupt-'))).toBe(true);
+  it('round-trips data through writeStorage/readStorage', () => {
+    writeStorage(file, [{ id: 1 }, { id: 2 }]);
+    expect(readStorage(file)).toEqual([{ id: 1 }, { id: 2 }]);
   });
 
-  it('atomic write and concurrent writes persist successfully', async () => {
-    const writeStorageAtomic = (file: string, data: any) => {
-      const tmpFile = `${file}.tmp`;
-      fs.writeFileSync(tmpFile, JSON.stringify(data));
-      fs.renameSync(tmpFile, file);
-    };
+  it('leaves no temp files behind after a write', () => {
+    writeStorage(file, [{ id: 1 }]);
+    expect(fs.readdirSync(dir)).toEqual(['audits.json']);
+  });
 
-    const fileLocks = new Map<string, Promise<any>>();
-    const withLock = (file: string, op: () => void) => {
-      const lock = (fileLocks.get(file) || Promise.resolve()).then(op);
-      fileLocks.set(file, lock);
-      return lock;
-    };
+  it('quarantines a corrupt file instead of returning [] over it', () => {
+    fs.writeFileSync(file, '{ not json');
+    expect(() => readStorage(file)).toThrow(StorageCorruptError);
+    expect(fs.existsSync(file)).toBe(false);
+    const quarantined = fs.readdirSync(dir).filter(f => f.startsWith('audits.json.corrupt-'));
+    expect(quarantined).toHaveLength(1);
+    expect(fs.readFileSync(path.join(dir, quarantined[0]), 'utf-8')).toBe('{ not json');
+  });
 
-    await Promise.all([
-      withLock(testFile, () => {
-        const curr = fs.existsSync(testFile) ? JSON.parse(fs.readFileSync(testFile, 'utf-8')) : [];
-        curr.push({ id: 1 });
-        writeStorageAtomic(testFile, curr);
-      }),
-      withLock(testFile, () => {
-        const curr = fs.existsSync(testFile) ? JSON.parse(fs.readFileSync(testFile, 'utf-8')) : [];
-        curr.push({ id: 2 });
-        writeStorageAtomic(testFile, curr);
-      })
-    ]);
+  it('treats a truncated (empty) file as corrupt, not as an empty store', () => {
+    fs.writeFileSync(file, '');
+    expect(() => readStorage(file)).toThrow(StorageCorruptError);
+  });
 
-    const finalData = JSON.parse(fs.readFileSync(testFile, 'utf-8'));
-    expect(finalData.length).toBe(2);
+  it('rejects valid JSON that is not an array', () => {
+    fs.writeFileSync(file, '{"not":"an array"}');
+    expect(() => readStorage(file)).toThrow(StorageCorruptError);
   });
 });

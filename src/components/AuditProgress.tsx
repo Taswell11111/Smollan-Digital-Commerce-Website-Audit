@@ -223,7 +223,7 @@ export const AuditProgress: React.FC<AuditProgressProps> = ({ url, isLoading, on
             },
             executiveVerdict: {
               headline: `Diagnostic Notice: Storefront access failure (${data.error || 'Server unreachable'})`,
-              summaryText: `Storefront evaluated at 0/100 due to crawler or connection block. Remediate WAF allowlisting and server gateway errors to recover up to 90/100.`
+              summaryText: `Storefront evaluated at 0/100 due to crawler or connection block. Remediate WAF allowlisting and server gateway errors to improve the overall score.`
             },
             findings: [{
               id: 'MSR-00',

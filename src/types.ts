@@ -32,6 +32,7 @@ export interface CategoryResult {
 export interface InspectedPage {
   url: string;
   pageType: string;
+  jsonLdTypes?: string[];
   status: number;
   loadTimeMs: number;
   ttfbMs?: number;
@@ -79,6 +80,7 @@ export interface AuditRecord {
   primaryObjective: string;
   primaryKeyword?: string;
   depth: 'quick' | 'standard' | 'deep';
+  siteType?: 'ecommerce' | 'service';
   schemaVersion?: number;
   rulesetVersion?: string;
   overallScore: number;
@@ -121,51 +123,24 @@ export interface AuditRecord {
     affectedUrl?: string;
   };
   agenticCommerce?: AgenticCommerceAudit;
-  executionCost?: AuditExecutionCost;
+  runStats?: RunStats;
 }
 
+export type AiBotAccess = 'allowed' | 'partially_disallowed' | 'disallowed' | 'unknown';
+
+/** Only values measured on inspected pages or in robots.txt. No scores, market figures or vendor claims. */
 export interface AgenticCommerceAudit {
-  agenticScore: number; // 0 - 100
-  readinessTier: 'Emerging' | 'Developing' | 'Agentic-Ready' | 'Autonomous Leader';
-  fourLayerArchitecture: {
-    layer1MasterData: { score: number; status: 'pass' | 'partial' | 'fail'; gtinCoverage: string; mpnPresent: boolean; details: string };
-    layer2DynamicData: { score: number; status: 'pass' | 'partial' | 'fail'; syncLatency: string; ucpCompliant: boolean; details: string };
-    layer3SemanticData: { score: number; status: 'pass' | 'partial' | 'fail'; outcomeFocus: boolean; contextScore: number; details: string };
-    layer4TrustData: { score: number; status: 'pass' | 'partial' | 'fail'; esgMetadata: boolean; complianceDeclared: boolean; details: string };
+  measured: {
+    jsonLd: { typesFound: string[]; requiredTypes: string[]; missingRequiredTypes: string[]; pagesWithJsonLd: number; pagesInspected: number };
+    robots: { status: 'fetched' | 'absent' | 'error'; aiBots: Record<string, AiBotAccess> };
+    https: boolean;
   };
-  technicalCheckpoints: {
-    schemaOrgCoverage: { score: number; schemasFound: string[]; missingSchemas: string[]; details: string };
-    aiCrawlerAccess: { score: number; unblockedBots: string[]; blockedBots: string[]; robotsTxtStatus: string };
-    platformFeedsAndMcp: { mcpReady: boolean; feedsConfigured: string[]; details: string };
-    paymentPrimitives: { sptReady: boolean; protocolSupport: string[]; kyaSecurityStatus: string };
-  };
-  shareOfModelEstimate: {
-    projectedCitationRank: string;
-    projectedConversionLift: string;
-    projectedMarketValueShare: string;
-  };
-  ninetyDayRoadmap: {
-    phase1Days1to30: { title: string; focus: string; deliverables: string[] };
-    phase2Days31to60: { title: string; focus: string; deliverables: string[] };
-    phase3Days61to90: { title: string; focus: string; deliverables: string[] };
-  };
+  notMeasured: string[];
 }
 
-export interface AuditExecutionCost {
-  totalEstimatedCostZar: number;
-  totalEstimatedCostUsd: number;
+export interface RunStats {
   executionTimeMs: number;
-  crawlerBandwidthBytes: number;
   pagesScannedCount: number;
-  geminiInferenceTokens?: {
-    promptTokens: number;
-    completionTokens: number;
-    modelName: string;
-    tokenCostUsd: number;
-  };
-  computeResourceCostUsd: number;
-  commercialAuditBenchmarkZar: number;
-  costSavingsPercent: number;
 }
 
 export interface LeadRecord {
@@ -213,4 +188,70 @@ export interface UrlInspectionResult {
   isHttps: boolean;
   securityStatus: string;
   error?: string;
+}
+
+export type QaFindingCategory =
+  | 'Branding and identity'
+  | 'Navigation and footer'
+  | 'Website content'
+  | 'Legal and compliance'
+  | 'Promotions and campaigns'
+  | 'External links'
+  | 'Retailer references'
+  | 'Forms and third-party applications'
+  | 'SEO and metadata'
+  | 'Technical implementation'
+  | 'Customer experience'
+  | 'Product and shopping experience';
+
+export type QaFindingStatus =
+  | 'Confirmed anomaly'
+  | 'Potential anomaly'
+  | 'Technical observation'
+  | 'Requires live verification';
+
+export type QaSeverity = 'Critical' | 'High' | 'Medium' | 'Low';
+
+export interface QaFinding {
+  refId: string;
+  category: QaFindingCategory;
+  subcategory: string;
+  pageUrl: string;
+  sourceLocation: string;
+  anomalyDescription: string;
+  supportingEvidence: string;
+  whyAnomaly: string;
+  customerImpact: string;
+  businessImpact: string;
+  severity: QaSeverity;
+  findingClassification: QaFindingStatus;
+  verificationStatus: string;
+  recommendedCorrectiveAction: string;
+  additionalComments?: string;
+  verificationType?: string;
+  policyTermsPage?: string;
+  legalImplications?: string;
+}
+
+export interface QaAuditReport {
+  id: string;
+  timestamp: string;
+  targetUrl: string;
+  pagesAnalyzed: number;
+  totalFindings: number;
+  countsByStatus: {
+    confirmed: number;
+    potential: number;
+    observation: number;
+    requiresVerification: number;
+  };
+  countsBySeverity: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  countsByCategory: Record<string, number>;
+  findings: QaFinding[];
+  limitations: string[];
 }

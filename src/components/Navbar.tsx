@@ -8,7 +8,8 @@ import {
   Archive,
   Settings,
   SlidersHorizontal,
-  TrendingUp
+  TrendingUp,
+  FileCode
 } from 'lucide-react';
 import { AuditRecord } from '../types';
 import { ThemeSelector, ThemeOption } from './ThemeSelector';
@@ -36,6 +37,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'new_audit', label: 'Audit Gateway', icon: Plus },
     { id: 'overview', label: 'Executive Dashboard', icon: LayoutDashboard, disabled: !currentAudit },
     { id: 'report', label: 'Audit & Intelligence Report', icon: FileText, disabled: !currentAudit },
+    { id: 'qa_audit', label: 'QA Source Audit', icon: FileCode },
     { id: 'gap', label: 'Competitive Gap', icon: SlidersHorizontal, disabled: !currentAudit },
     { id: 'dashboard', label: 'Sales Cockpit', icon: TrendingUp, disabled: !currentAudit },
     { id: 'sandbox', label: 'Sandbox', icon: Sparkles, disabled: !currentAudit },

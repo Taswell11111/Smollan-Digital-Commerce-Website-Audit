@@ -128,6 +128,8 @@ export async function collectRenderedProductEvidence(options: {
   targetUrl: string;
   pagesInspected: any[];
   productCandidateUrls?: string[];
+  /** Robots.txt and other crawl policy. Every URL is checked before it is requested. */
+  isAllowed?: (url: string) => boolean;
   scrapePage: RenderedPageScraper;
   customLookup?: DnsLookupFunction;
   maxPages?: number;
@@ -137,6 +139,7 @@ export async function collectRenderedProductEvidence(options: {
     targetUrl,
     pagesInspected,
     productCandidateUrls = [],
+    isAllowed = () => true,
     scrapePage,
     customLookup,
     maxPages = FIRECRAWL_MAX_PAGES,
@@ -202,6 +205,10 @@ export async function collectRenderedProductEvidence(options: {
     const urlKey = productUrlKey(requestUrl);
 
     if (visited.has(urlKey) || normalizeHost(parsedCandidate.hostname) !== targetHost) continue;
+    if (!isAllowed(requestUrl)) {
+      visited.add(urlKey);
+      continue;
+    }
     if (parsedCandidate.protocol !== 'http:' && parsedCandidate.protocol !== 'https:') continue;
 
     const remainingMs = deadline - Date.now();
@@ -283,7 +290,7 @@ export async function collectRenderedProductEvidence(options: {
         }
       } else {
         for (const link of findProductLinks($clean, sourceParsed.toString(), targetHost)) {
-          if (attemptedUrls.length + candidates.length < pageLimit) {
+          if (attemptedUrls.length + candidates.length < pageLimit && isAllowed(link)) {
             knownProductKeys.add(productUrlKey(link));
             candidates.push(link);
           }

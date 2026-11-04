@@ -19,6 +19,7 @@ const BLOCKED_IPV4_CIDRS = [
 const BLOCKED_IPV6_CIDRS = [
   '::1/128',
   '::/128',
+  '::/96', // IPv4-compatible (deprecated); blocks e.g. ::127.0.0.1
   'fc00::/7',
   'fe80::/10',
   'ff00::/8',
